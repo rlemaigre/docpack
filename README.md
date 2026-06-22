@@ -71,7 +71,7 @@ mykb/
 
 ## Input
 
-The bundler reads files as **Markdown text (UTF-8)**. It recursively walks the input directory, parses ATX headings (`#` through `######`) to build a node hierarchy, and stores everything in SQLite with an FTS5 full-text index.
+The bundler reads files as **Markdown text (UTF-8)**. It recursively walks the input directory, parses ATX headings (`#` through `######`) to build a document hierarchy, and stores everything in SQLite with an FTS5 full-text index.
 
 Conversion from other formats (PDF, DOCX, etc.) is the caller's responsibility — preprocess your files into Markdown before bundling.
 
@@ -81,7 +81,7 @@ Conversion from other formats (PDF, DOCX, etc.) is the caller's responsibility �
 | ------------------------------------------ | ------ | ---------------------------------------- |
 | `manifest <kb>`                            | YAML   | KB metadata (version, home, stats)       |
 | `toc <kb> <slug> --depth N`                | YAML   | Hierarchy with clipped subtree summaries |
-| `get <kb> <slug>`                          | XML    | Node content + full subtree              |
+| `get <kb> <slug>`                          | XML    | Document content + full subtree          |
 | `search <kb> "query" --limit N --offset O` | YAML   | FTS5 search with BM25 ranking            |
 | `serve <kb> --mcp`                         | stdio  | Long-lived MCP server for AI agents      |
 
@@ -97,9 +97,9 @@ flowchart LR
     E --> F[CLI / MCP / TS library]
 ```
 
-The bundler walks the filesystem, reads each file as Markdown, parses headings into a node tree, and stores everything in SQLite with an FTS5 index. The query side reads from the same database.
+The bundler walks the filesystem, reads each file as Markdown, parses headings into a document tree, and stores everything in SQLite with an FTS5 index. The query side reads from the same database.
 
-### Node hierarchy
+### Document hierarchy
 
 ```mermaid
 graph TD
@@ -112,12 +112,12 @@ graph TD
     S2 --> L3[leaf]
 ```
 
-All ingested files are root nodes — directory structure is discarded. Two node types:
+All ingested files are root documents — directory structure is discarded. Two document types:
 
-- **file** -- ingested Markdown document, root node, may contain sections
+- **file** -- ingested Markdown document, root document, may contain sections
 - **section** -- Markdown heading, child of a file, may contain subsections
 
-Every `Node` has a `slug` (globally unique), `title`, `chunk` (self content), and `children`. Cross-file navigation uses `docpack://slug` links rewritten by the bundler.
+Every `Document` has a `slug` (globally unique), `title`, `chunk` (self content), and `children`. The same `Document` shape applies at every level — files, sections, and leaves are all documents. Cross-file navigation uses `docpack://slug` links rewritten by the bundler.
 
 ## CLI reference
 
@@ -157,7 +157,7 @@ docpack toc <kb> <slug> [--depth <mode>]
 | `N` (number) | Unfold N levels, clip with `Summary` |
 | `full`       | Complete tree, no clipping           |
 
-For clipped subtrees, children `Nodes` are replaced with a `Summary` object: `chunkCount`, `totalBytes`, `depth`, and optional summary `text`.
+For clipped subtrees, children `Document`s are replaced with a `Summary` object: `chunkCount`, `totalBytes`, `depth`, and optional summary `text`.
 
 ### get
 
@@ -165,7 +165,7 @@ For clipped subtrees, children `Nodes` are replaced with a `Summary` object: `ch
 docpack get <kb> <slug>
 ```
 
-Returns XML with the node's chunk and its full subtree. Attributes include `slug`, `title`, `level`, `depth`, `parent`, `prev`, `next`.
+Returns XML with the document's chunk and its full subtree. Attributes include `slug`, `title`, `level`, `depth`, `parent`, `prev`, `next`.
 
 ```xml
 <document slug="api-auth" title="Authentication" level="2" depth="0" parent="api" prev="api-overview" next="api-billing">
@@ -224,11 +224,11 @@ docpack summarize ./mykb \
   --min-content-length 200
 ```
 
-Docpack traverses the node tree bottom-up, level by level. At each node it fills the prompt template with the node's content and its children's summaries, then sends a `POST /chat/completions` request. Parents always wait for all children to finish — siblings at the same depth are processed in parallel (bounded by `--concurrency`).
+Docpack traverses the document tree bottom-up, level by level. At each document it fills the prompt template with the document's content and its children's summaries, then sends a `POST /chat/completions` request. Parents always wait for all children to finish — siblings at the same depth are processed in parallel (bounded by `--concurrency`).
 
 **Tree folding algorithm:**
 
-1. Find all leaf nodes (no children). Process them in parallel.
+1. Find all leaf documents (no children). Process them in parallel.
 2. Move up one level. For each parent, fill the prompt template with its chunk + children summaries. Process in parallel.
 3. Repeat until the root is reached.
 
@@ -236,16 +236,16 @@ Docpack traverses the node tree bottom-up, level by level. At each node it fills
 
 | Variable | Description |
 |---|---|
-| `{title}` | Node's own title |
-| `{slug}` | Node's own slug |
-| `{chunk}` | Node's own content (Markdown). |
+| `{title}` | Document's own title |
+| `{slug}` | Document's own slug |
+| `{chunk}` | Document's own content (Markdown). |
 | `{children_titles}` | Ordered list of children titles, one per line |
 | `{children_summaries}` | Ordered list of `title: summary` pairs, one per line |
 | `{children_count}` | Number of children |
 
 **Pass-through optimization (`--min-content-length`):**
 
-If a leaf node has no chunk, or its chunk is shorter than `--min-content-length`, the LLM call is skipped. The chunk is used as-is if present, or the node is skipped. This avoids wasting LLM calls on trivial leaves and reduces hallucination risk on tiny inputs.
+If a leaf document has no chunk, or its chunk is shorter than `--min-content-length`, the LLM call is skipped. The chunk is used as-is if present, or the document is skipped. This avoids wasting LLM calls on trivial leaves and reduces hallucination risk on tiny inputs.
 
 **Options:**
 
@@ -256,7 +256,7 @@ If a leaf node has no chunk, or its chunk is shorter than `--min-content-length`
 | `--endpoint <url>` | yes | Base URL of an OpenAI-compatible server (e.g. `http://localhost:8000/v1`) |
 | `--prompt <path>` | yes | Path to a prompt template file |
 | `--concurrency <n>` | no | Max parallel LLM requests per level (default: 8) |
-| `--min-content-length <n>` | no | Skip LLM call for leaf nodes shorter than this (default: 0 = disabled) |
+| `--min-content-length <n>` | no | Skip LLM call for leaf documents shorter than this (default: 0 = disabled) |
 | `--api-key <key>` | no | API key for cloud endpoints |
 
 Works with any OpenAI-compatible endpoint: vLLM, Ollama, LM Studio, cloud OpenAI.
@@ -349,19 +349,21 @@ Both modes use upsert semantics — existing summaries for untouched slugs are p
 
 ## Data model
 
-### Node
+### Document
 
 ```
-Node = {
+Document = {
   type: "file" | "section",
   title: string,
   slug: string,
   index: number,
   chunk: string?,      // self content (Markdown)
   summary: string?,    // subtree overview
-  children: Node[] | Summary
+  children: Document[] | Summary
 }
 ```
+
+The `Document` shape is uniform across all levels — a file, a section, and a leaf section all share the same structure.
 
 ### Summary
 
@@ -369,7 +371,7 @@ Node = {
 Summary = {
   chunkCount: number,   // descendants with content
   totalBytes: number,   // total chunk bytes in subtree
-  depth: number,        // max depth below this node
+  depth: number,        // max depth below this document
   text?: string         // AI-generated overview
 }
 ```
@@ -378,7 +380,7 @@ Summary = {
 
 SQLite with FTS5. Schema is an internal detail and may change.
 
-- `nodes` -- node tree with slug, type, title, parent, chunk, summary
+- `nodes` -- document tree with slug, type, title, parent, chunk, summary
 - `nodes_fts` -- FTS5 index on title and chunk
 - `closure` -- materialized transitive closure for subtree queries
 
