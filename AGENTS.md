@@ -67,11 +67,8 @@ You MUST respect the following writing style :
     * Read the commit messages and review the file diffs.
     * Infer what the last sessions were about and where we left off.
 
-# Source Material and Conversion Scripts
-The directory inputs/ contains :
-* Input PDF files in inputs/docs/,
-* Same files converted to markdown in inputs/docs-md/,
-* Conversion scripts in inputs/converters/.
+# Samples
+The directory samples/ contains Markdown files used for testing and demonstration.
 
 # Environment
 
