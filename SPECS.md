@@ -136,7 +136,7 @@ Node = { type : "file" | "section", title : string, slug : string, index : numbe
 * `title` — human-readable label.
 * `slug` — globally unique identifier.
 * `index` — position among siblings. Assigned by the bundler (filesystem sort order or heading order).
-* `chunk` — *self content* of the node only, does NOT aggregate of the whole subtree. Optional (e.g. directories have no associated chunk).
+* `chunk` — *self content* of the node only, does NOT aggregate the whole subtree. Optional (e.g. file nodes with no content before the first heading).
 * `summary` — AI-generated summary of the entire subtree (chunk + all descendants). Optional. Produced by post-processing.
 * `children` — always present. Empty `[]` = leaf.
 
@@ -229,22 +229,21 @@ OAuth details...
 </document>
 ```
 
-Internal node (`get("docs")`):
+Internal node (`get("readme")`):
 ```xml
-<document slug="docs" title="docs" level="0" depth="2">
-  <children>
-    <document slug="readme" title="README" level="1" depth="1" parent="docs">
-      <chunk>
-# My Project
-
+<document slug="readme" title="README" level="0" depth="2">
+  <chunk>
 Intro text...
+  </chunk>
+  <children>
+    <document slug="getting-started" title="Getting Started" level="1" depth="1" parent="readme">
+      <chunk>
+Getting started content...
       </chunk>
     </document>
-    <document slug="contributing" title="Contributing" level="1" depth="1" parent="docs">
+    <document slug="api-reference" title="API Reference" level="1" depth="1" parent="readme">
       <chunk>
-# Contributing
-
-How to contribute...
+API reference content...
       </chunk>
     </document>
   </children>
@@ -263,7 +262,7 @@ import { bundle } from "@rlemaigre/docpack";
 interface BundleOptions {
   input: string;              // path to input directory
   output: string;             // path to output directory (e.g. "./mykb" — produces mykb/docpack.db + mykb/docpack.yaml)
-  home: string;               // path to the primary entry file (mandatory)
+  home?: string;              // path to the primary entry file (mandatory via CLI, optional in library — manifest records null if omitted)
   description?: string;       // human-readable description of what the KB covers
   url?: string;               // source URL (wiki, website, etc.)
   exportedAt?: string;        // date of source data export (ISO 8601), auto-set to bundle time if omitted
@@ -282,7 +281,7 @@ bundle(options): BundleStats;
 
 * The bundler reads each file as Markdown, parses headings to build the chunk hierarchy.
 * Relative `.md` links in chunk content are rewritten to `docpack://slug` references.
-* `home` — path to the primary entry file (mandatory). Resolved to a slug and recorded in the manifest.
+* `home` — path to the primary entry file (mandatory via CLI, optional in library). Resolved to a slug and recorded in the manifest. Omitted → manifest records `home: null`.
 * `onProgress` — called per file. Caller can display a spinner, log, or ignore.
 * `onError` — called per failed file. Bundler skips and keeps going.
 * Produces `<output>/docpack.db` (SQLite) and `<output>/docpack.yaml` (manifest). Creates parent dirs. Overwrites existing output.
