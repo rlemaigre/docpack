@@ -167,6 +167,17 @@ docpack get <kb> <slug>
 
 Returns XML with the node's chunk and its full subtree. Attributes include `slug`, `title`, `level`, `depth`, `parent`, `prev`, `next`.
 
+```xml
+<document slug="api-auth" title="Authentication" level="2" depth="0" parent="api" prev="api-overview" next="api-billing">
+  <chunk>...</chunk>
+  <children>
+    <document slug="api-auth-oauth" title="OAuth" level="3" depth="0" parent="api-auth" prev="" next="api-auth-apikey">
+      <chunk>...</chunk>
+    </document>
+  </children>
+</document>
+```
+
 ### search
 
 ```bash
@@ -361,19 +372,6 @@ Summary = {
   depth: number,        // max depth below this node
   text?: string         // AI-generated overview
 }
-```
-
-### XML output
-
-```xml
-<document slug="api-auth" title="Authentication" level="2" depth="0" parent="api" prev="api-overview" next="api-billing">
-  <chunk>...</chunk>
-  <children>
-    <document slug="api-auth-oauth" title="OAuth" level="3" depth="0" parent="api-auth" prev="" next="api-auth-apikey">
-      <chunk>...</chunk>
-    </document>
-  </children>
-</document>
 ```
 
 ## Storage
