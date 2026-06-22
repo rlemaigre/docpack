@@ -1,13 +1,12 @@
 import type { Database } from "better-sqlite3";
 
-/** Single search result with matched content and BM25 rank. */
+/** Single search result with a highlighted snippet. */
 export interface SearchHit {
   slug: string;
-  title: string;
-  text: string;
-  rank: number;
-  prev?: string;  // slug of previous sibling, sections only
-  next?: string;  // slug of next sibling, sections only
+  snippet: string;   // excerpt around matched terms, <b>/</b> markers, ... ellipsis
+  prev?: string;     // slug of previous sibling, sections only
+  next?: string;     // slug of next sibling, sections only
+  parent?: string;   // slug of parent document
 }
 
 /** Search results with total count and paginated hits. */
@@ -57,15 +56,28 @@ function countMatches(db: Database, query: string): number {
   return row.total;
 }
 
+/*
+ * FTS5 snippet() requires exactly 5 arguments (after the table name):
+ *   snippet(table, col, open_tag, close_tag, ellipsis, token_limit)
+ * col=-1 searches all indexed columns and picks the best excerpt.
+ * The documented "2-5 args" in the SQLite docs is wrong; source code enforces 5.
+ */
+const SNIPPET_COL = -1;       // search all columns
+const SNIPPET_OPEN = "<b>";
+const SNIPPET_CLOSE = "</b>";
+const SNIPPET_ELLIPSIS = "...";
+const SNIPPET_TOKENS = 30;
+
 /** Fetch ranked hits matching the FTS5 query, with limit/offset pagination. */
 function fetchRankedHits(
   db: Database,
   query: string,
   limit: number,
   offset: number,
-): Array<{ slug: string; title: string; chunk: string | null; rank: number }> {
+): Array<{ slug: string; snippet: string }> {
   return db.prepare(`
-    SELECT n.slug, n.title, n.chunk, rank
+    SELECT n.slug,
+      snippet(nodes_fts, ${SNIPPET_COL}, '${SNIPPET_OPEN}', '${SNIPPET_CLOSE}', '${SNIPPET_ELLIPSIS}', ${SNIPPET_TOKENS}) AS snippet
     FROM nodes_fts
     JOIN nodes n ON n.rowid = nodes_fts.rowid
     WHERE nodes_fts MATCH ?
@@ -73,41 +85,40 @@ function fetchRankedHits(
     LIMIT ? OFFSET ?
   `).all(query, limit, offset) as Array<{
     slug: string;
-    title: string;
-    chunk: string | null;
-    rank: number;
+    snippet: string;
   }>;
 }
 
 /** Map a raw database hit to a SearchHit. */
 function mapToSearchHit(
-  h: { slug: string; title: string; chunk: string | null; rank: number },
-  navBySlug: Map<string, { prev: string | null; next: string | null }>,
+  h: { slug: string; snippet: string },
+  navBySlug: Map<string, { parent: string | null; prev: string | null; next: string | null }>,
 ): SearchHit {
   const nav = navBySlug.get(h.slug);
   return {
     slug: h.slug,
-    title: h.title,
-    text: h.chunk ?? "",
-    rank: h.rank,
+    snippet: h.snippet,
     ...(nav?.prev ? { prev: nav.prev } : {}),
     ...(nav?.next ? { next: nav.next } : {}),
+    ...(nav?.parent ? { parent: nav.parent } : {}),
   };
 }
 
 /**
- * Fetch prev/next navigation for a list of slugs using window functions.
- * Returns a map of slug -> { prev, next } for sections only.
+ * Fetch parent, prev, next navigation for a list of slugs using window functions.
+ * Returns a map of slug -> { parent, prev, next }.
+ * parent is included for all non-root nodes. prev/next only for sections.
  */
 function fetchNavBySlug(
   db: Database,
   slugs: string[],
-): Map<string, { prev: string | null; next: string | null }> {
+): Map<string, { parent: string | null; prev: string | null; next: string | null }> {
   const placeholders = slugs.map(() => "?").join(",");
   const rows = db.prepare(`
     SELECT
       slug,
       type,
+      parent_slug,
       LAG(slug) OVER (PARTITION BY parent_slug ORDER BY idx) AS prev_slug,
       LEAD(slug) OVER (PARTITION BY parent_slug ORDER BY idx) AS next_slug
     FROM nodes
@@ -115,19 +126,24 @@ function fetchNavBySlug(
   `).all(...slugs) as Array<{
     slug: string;
     type: string;
+    parent_slug: string | null;
     prev_slug: string | null;
     next_slug: string | null;
   }>;
 
-  const navMap = new Map<string, { prev: string | null; next: string | null }>();
+  const navMap = new Map<string, { parent: string | null; prev: string | null; next: string | null }>();
   for (const row of rows) {
+    const entry: { parent: string | null; prev: string | null; next: string | null } = {
+      parent: row.parent_slug,
+      prev: null,
+      next: null,
+    };
     // prev/next only for sections
     if (row.type === "section") {
-      navMap.set(row.slug, {
-        prev: row.prev_slug,
-        next: row.next_slug,
-      });
+      entry.prev = row.prev_slug;
+      entry.next = row.next_slug;
     }
+    navMap.set(row.slug, entry);
   }
   return navMap;
 }
