@@ -483,11 +483,10 @@ interface Manifest {
 
 interface SearchHit {
   slug: string;
-  title: string;
-  text: string;         // matched document's content
-  rank: number;         // BM25 score
+  snippet: string;      // excerpt around matched terms, <b>/</b> markers, ... ellipsis
   prev?: string;        // slug of previous sibling, sections only
   next?: string;        // slug of next sibling, sections only
+  parent?: string;      // slug of parent document
 }
 
 interface SearchResults {
@@ -512,7 +511,7 @@ kb.search(params);    // SearchResults
 * `manifest()` — reads `docpack.yaml`. Returns version, aggregate statistics, and metadata fields (`home`, `description`, `url`, `exportedAt`). Compact — no file enumeration.
 * `toc(slug, depth)` — returns the hierarchy rooted at `slug`. `depth` is a number (levels to unfold, `0` = root only) or `'full'` (full tree, no clipping). Clipped subtrees carry `Summary` for semantic discovery.
 * `get(slug)` — returns the document and its subtree. Returns `null` if the slug does not exist.
-* `search(params)` — full-text search over node titles and chunk content using SQLite FTS5. `query` accepts the full FTS5 query language (plain words, phrases, AND/OR/NOT, prefix, NEAR, column-specific). Results ranked by BM25 score. Each hit carries the matched `text` and, for section documents, `prev`/`next` sibling navigation slugs. `limit` and `offset` are required. `total` gives the full result set size.
+* `search(params)` — full-text search over node titles and chunk content using SQLite FTS5. `query` accepts the full FTS5 query language (plain words, phrases, AND/OR/NOT, prefix, NEAR, column-specific). Results ranked by BM25 score. Each hit carries a `snippet` excerpt (~30 tokens around matched terms with `<b>`/`</b>` markers) and, for section documents, `prev`/`next` sibling navigation slugs. Full content is available via `get(slug)`. `limit` and `offset` are required. `total` gives the full result set size.
 * `parent`, `prev`, `next` on any `Document` — navigation slugs derived from structure. `parent` is present on all non-root documents. `prev`/`next` present only on sections (ordered children of a file). Absent when not applicable.
 * `Summary` merges structural stats and semantic text. On clipped TOC documents, aggregating summaries across branches lets the agent reconstruct a transversal overview of the entire tree — making TOC the primary semantic discovery tool.
 * `get()` omits `Summary` because the agent already obtained it when navigating via `manifest()` or `toc()` to discover the target slug in the first place.
@@ -626,3 +625,9 @@ Relationships lay the groundwork for a knowledge graph: documents reference each
 * **Web UI** — `docpack serve ./mykb --ui` spins up a local web app for browsing, searching, and exploring the knowledge base. Browser-based TOC navigation, FTS search, graph visualization when embeddings and relationships are available.
 * **Incremental updates** — track file modification times to detect changes. Enable `--watch` mode or manual `docpack update` for incremental KB rebuilds. KB lives in a `.docpack/` folder at document root (like `.git`), updating automatically on file changes or on demand.
 * **AI-authored documents** — agents can create new Markdown files in an `ai/` directory alongside `docpack.db` and `docpack.yaml`. An incremental re-bundle ingests these into the KB, and a post-processing step computes bidirectional relationships between AI-authored and source documents. Example: an agent reading a novel creates one document per character in `ai/characters/`. Each chapter relates to the characters that appear in it; each character document relates back to the chapters they appear in. This lets agents autonomously build and evolve layered knowledge on top of source material.
+
+## Known Issues
+
+### Ugly slugs from collision cascading
+
+When section heading slugs collide, `resolveCollision()` prefixes with the full parent slug. Deeply nested sections produce slugs like `1-6-1-2-12-1-recovering-from-media-failure-on-the-database-file`. The `@sindresorhus/slugify` library has no options to address this — the fix requires changing the collision resolution strategy in the bundler (e.g. use a short index suffix instead of full parent prefix).

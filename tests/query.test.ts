@@ -270,9 +270,7 @@ describe("query", () => {
         expect(results.total).toBeGreaterThan(0);
         expect(results.hits.length).toBeGreaterThan(0);
         expect(results.hits[0].slug).toBeDefined();
-        expect(results.hits[0].title).toBeDefined();
-        expect(results.hits[0].text).toBeDefined();
-        expect(results.hits[0].rank).toBeDefined();
+        expect(results.hits[0].snippet).toBeDefined();
       } finally {
         kb.close();
       }
