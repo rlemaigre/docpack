@@ -21,6 +21,9 @@ docpack manifest ./mykb
 docpack toc ./mykb "toc" --depth 2
 docpack search ./mykb "keyword" --limit 10
 
+# Package as an agent skill
+docpack skill ./mykb --use-when "Use for project docs" --output ./my-skill
+
 # Start an MCP server
 docpack serve ./mykb --mcp
 ```
@@ -48,7 +51,7 @@ docpack manifest ./mykb
 **From TypeScript**
 
 ```ts
-import { bundle, query } from "@rlemaigre/docpack";
+import { bundle, query, summarize, generateSkill } from "@rlemaigre/docpack";
 ```
 
 **As an AI Skill**
@@ -77,13 +80,17 @@ Conversion from other formats (PDF, DOCX, etc.) is the caller's responsibility �
 
 ## Cheat sheet
 
-| Command                                    | Output | Use                                      |
-| ------------------------------------------ | ------ | ---------------------------------------- |
-| `manifest <kb>`                            | YAML   | KB metadata (version, home, stats)       |
-| `toc <kb> <slug> --depth N`                | YAML   | Hierarchy with clipped subtree summaries |
-| `get <kb> <slug>`                          | XML    | Document content + full subtree          |
-| `search <kb> "query" --limit N --offset O` | YAML   | FTS5 search with BM25 ranking            |
-| `serve <kb> --mcp`                         | stdio  | Long-lived MCP server for AI agents      |
+| Command                                                      | Output  | Use                                                  |
+| ------------------------------------------------------------ | ------- | ---------------------------------------------------- |
+| `bundle --input <dir> --output <dir> --home <file>`          | files   | Create KB from Markdown files                        |
+| `manifest <kb>`                                              | YAML    | KB metadata (version, home, stats)                   |
+| `toc <kb> <slug> --depth N`                                  | YAML    | Hierarchy with clipped subtree summaries             |
+| `get <kb> <slug>`                                            | XML     | Document content + full subtree                      |
+| `search <kb> "query" --limit N --offset O`                   | YAML    | FTS5 search with BM25 ranking                        |
+| `summarize <kb> --summaries <file>`                          | n/a     | Import summaries from JSONL                          |
+| `summarize <kb> --mode llm --model <name> --endpoint <url>`  | n/a     | Generate summaries via LLM fold                      |
+| `skill <kb> --use-when "<text>" --output <dir>`              | files   | Package KB as a self-contained agent skill           |
+| `serve <kb> --mcp`                                           | stdio   | Long-lived MCP server for AI agents                  |
 
 ## Architecture
 
@@ -263,6 +270,30 @@ Works with any OpenAI-compatible endpoint: vLLM, Ollama, LM Studio, cloud OpenAI
 
 Both modes use upsert semantics — existing summaries for untouched slugs are preserved.
 
+### skill
+
+```bash
+docpack skill <kb> --use-when "<description>" --output <dir>
+```
+
+Package an existing KB as a self-contained agent skill directory:
+
+```
+<output>/
+  SKILL.md              # auto-generated skill instructions
+  references/
+    docpack.db
+    docpack.yaml
+  scripts/
+    docpack.mjs         # wrapper script (pins docpack version)
+```
+
+| Option         | Required | Description                                              |
+| -------------- | -------- | -------------------------------------------------------- |
+| `<kb>`         | yes      | Path to existing KB directory                            |
+| `--use-when`   | yes      | When to use the skill (becomes SKILL.md description)     |
+| `--output`     | yes      | Output skill directory                                   |
+
 ### serve
 
 ```bash
@@ -346,6 +377,20 @@ await summarize({
 ```
 
 Both modes use upsert semantics — existing summaries for untouched slugs are preserved.
+
+### Generate skill
+
+```ts
+import { generateSkill } from "@rlemaigre/docpack";
+
+generateSkill({
+  kb: "./mykb",
+  useWhen: "Use when building PowerBuilder applications",
+  output: "./my-skill",
+});
+```
+
+Reads the KB manifest and home TOC, renders a SKILL.md template, copies the KB to `references/`, and generates a `scripts/docpack.mjs` wrapper script that pins the docpack version.
 
 ## Data model
 
