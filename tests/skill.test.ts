@@ -130,7 +130,7 @@ describe("skill generation", () => {
 
     const script = fs.readFileSync(path.join(skillDir, "scripts", "docpack.mjs"), "utf8");
 
-    expect(script).toContain("@rlemaigre/docpack@0.3.1");
+    expect(script).toContain("@rlemaigre/docpack@0.4.0");
   });
 
   it("wrapper script resolves KB path relative to itself", () => {
