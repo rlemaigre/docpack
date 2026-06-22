@@ -4,6 +4,7 @@ import { cac } from "cac";
 import { bundle } from "../bundler";
 import { query } from "../query";
 import { summarize } from "../post-process/summarize";
+import { generateSkill } from "../skill/generate";
 import { formatXml, formatYaml } from "./format";
 import { startMCPServer, parseDepth } from "./mcp";
 
@@ -197,6 +198,28 @@ cli
     }
 
     await startMCPServer(kb);
+  });
+
+// ---------------------------------------------------------------------------
+// skill
+// ---------------------------------------------------------------------------
+cli
+  .command(
+    "skill <kb>",
+    "Package a knowledge base as a self-contained agent skill",
+  )
+  .option("--use-when <text>", "Imperative description of when to use the skill (required)")
+  .option("--output <path>", "Path to output skill directory (required)")
+  .action((kb, options) => {
+    validateRequired(options, ["useWhen", "output"]);
+
+    generateSkill({
+      kb,
+      output: options.output,
+      useWhen: options.useWhen,
+    });
+
+    process.stderr.write(`Skill package written to: ${options.output}\n`);
   });
 
 // ---------------------------------------------------------------------------

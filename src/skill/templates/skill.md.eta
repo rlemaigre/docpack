@@ -1,0 +1,41 @@
+---
+name: <%= it.name %>
+description: <%= it.useWhen %>
+---
+
+# <%= it.name %>
+
+<%= it.useWhen %>
+
+## Knowledge Base
+
+- **Version:** <%= it.version %>
+- **Chunks:** <%= it.chunks %>
+- **Size:** <%= it.size %><% if (it.home) { %>
+- **Home:** <%= it.home %><% } %><% if (it.description) { %>
+- **Description:** <%= it.description %><% } %><% if (it.url) { %>
+- **Source:** <%= it.url %><% } %><% if (it.structure) { %>
+
+## Structure
+
+<%= it.structure %>
+<% } %>
+## Usage
+
+### CLI
+
+```bash
+npx @rlemaigre/docpack manifest ./references
+npx @rlemaigre/docpack toc ./references "<%= it.home %>" --depth 1
+npx @rlemaigre/docpack get ./references "<slug>"
+npx @rlemaigre/docpack search ./references "<query>" --limit 5
+```
+
+### Script
+
+```bash
+node ./scripts/docpack.mjs manifest
+node ./scripts/docpack.mjs toc "<%= it.home %>" --depth 1
+node ./scripts/docpack.mjs get "<slug>"
+node ./scripts/docpack.mjs search "<query>" --limit 5
+```
