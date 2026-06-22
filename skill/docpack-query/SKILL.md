@@ -21,26 +21,26 @@ Query a docpack knowledge base -- a portable SQLite database built from a direct
 
 Start broad, narrow down. This is the most token-efficient approach.
 
-**Step 1: `manifest`** -- get KB overview, root slugs, file summaries.
+**Step 1: `manifest`** -- get KB overview.
 
 ```bash
 npx @rlemaigre/docpack manifest ./mykb
 ```
 
-Returns root slugs and file-level summaries with `text` fields (if summaries were generated). Use this to identify which files are relevant to your question.
+Returns `version`, `totalChunks`, `totalBytes`, `home` (slug of the primary entry file), `description`, `url`, and `exportedAt`. Use the `home` slug as your entry point for `toc`.
 
-**Step 2: `toc --depth 1`** -- explore a file's top-level sections with subtree summaries.
+**Step 2: `toc --depth 1`** -- explore top-level sections of the home document.
 
 ```bash
-npx @rlemaigre/docpack toc ./mykb "api-reference" --depth 1
+npx @rlemaigre/docpack toc ./mykb "home" --depth 1
 ```
 
-Each child shows `chunkCount`, `totalBytes`, `depth`, and `text` (summary). Use summaries to pick which sections to drill into.
+Each child shows `chunkCount`, `totalBytes`, `depth`, and `text` (summary, if generated). Use summaries to pick which sections to drill into.
 
 **Step 3: `toc --depth 2`** -- drill one level deeper.
 
 ```bash
-npx @rlemaigre/docpack toc ./mykb "api-reference" --depth 2
+npx @rlemaigre/docpack toc ./mykb "home" --depth 2
 ```
 
 Leaf nodes at depth 2 show their clipped subtree summaries. Pick the slug you want.
@@ -69,7 +69,7 @@ Best for complex questions. Search to find candidate slugs, then use TOC to unde
 
 ```bash
 # Find relevant sections
-npx @rlemaigre/docpack search ./mykb "DataWindow painter" --limit 10
+npx @rlemaigre/docpack search ./mykb "authentication AND OAuth" --limit 10
 
 # Understand the section's place in the hierarchy
 npx @rlemaigre/docpack toc ./mykb "api-reference" --depth 2
@@ -80,7 +80,7 @@ npx @rlemaigre/docpack get ./mykb "api-reference-auth"
 
 ## What works great
 
-- **`manifest`** -- instant KB overview with file summaries. Always start here.
+- **`manifest`** -- instant KB overview with metadata and home slug. Always start here.
 - **`toc --depth 1`** -- top-level section summaries give you a semantic map of each document.
 - **`toc --depth 2`** -- second-level summaries let you drill without loading full content.
 - **`search "exact phrase"`** -- phrase search finds specific concepts reliably.
@@ -92,20 +92,18 @@ npx @rlemaigre/docpack get ./mykb "api-reference-auth"
 
 - **`search "prefix*"`** -- prefix matching for partial terms (e.g., `GetSeries*`).
 - **`search "term1 OR term2"`** -- alternative terms, but returns more results.
-- **`toc --depth files`** -- useful for directory-based KBs, expands to file boundaries.
 - **`toc --depth full`** -- complete tree, but token-heavy for large subtrees.
 
 ## What works so-so
 
 - **`search "NEAR"`** -- limited FTS5 support, often returns 0 results.
 - **`search "NOT"`** -- works but can produce counterintuitive result sets.
-- **Single broad terms** -- e.g., `search "DataWindow"` returns 1462 hits. Too noisy.
+- **Single broad terms** -- e.g., `search "component"` returns too many hits. Combine with `AND`.
 
 ## What doesn't work well
 
 - **Searching terms not in source content** -- summaries may use different vocabulary than the source. Search the chunk content, not the summaries.
-- **Index nodes** -- document indexes rank highly in search but contain low-value alphabetical listings.
-- **Very large `get` calls** -- a node with 800+ children returns massive XML. Use `toc` with depth limits first.
+- **Very large `get` calls** -- a document with 800+ children returns massive XML. Use `toc` with depth limits first.
 - **`toc --depth full` on large KBs** -- can exceed token budgets. Use incremental depth instead.
 
 ## Anti-rationalization table
@@ -119,7 +117,7 @@ npx @rlemaigre/docpack get ./mykb "api-reference-auth"
 | Parse YAML output programmatically | Parse XML output from `get` -- it's structured and stable |
 | Assume BM25 ranking = semantic relevance | Rank by your own criteria; BM25 is keyword overlap |
 | Skip `manifest` and go straight to `search` | Always read `manifest` first to understand KB scope |
-| Search single broad terms like "DataWindow" | Combine terms: `DataWindow AND painter`, use `--limit 5` |
+| Search single broad terms like "component" | Combine terms: `component AND render`, use `--limit 5` |
 
 ## MCP server
 
@@ -133,7 +131,7 @@ Exposes four tools over stdio:
 
 | Tool | Parameters | Returns |
 |---|---|---|
-| `manifest` | none | KB overview, root slugs, file stats |
+| `manifest` | none | KB overview (version, totalChunks, totalBytes, home, description, url, exportedAt) |
 | `toc` | `slug`, `depth` | Hierarchy with clipped summaries |
 | `get` | `slug` | Full document with subtree (XML) |
 | `search` | `query`, `limit`, `offset` | Ranked search results |
@@ -149,7 +147,7 @@ const kb = query("./mykb");
 
 // Discover structure
 const manifest = kb.manifest();
-console.log(manifest.roots); // ["getting-started", "api-reference"]
+console.log(manifest.home); // "toc" — slug of the primary entry file
 
 // Navigate with clipped summaries
 const toc = kb.toc("api-reference", 2);
@@ -167,21 +165,9 @@ const results = kb.search({
 kb.close();
 ```
 
-## Effective frontmatter
+## Summary generation tips
 
-When generating summaries for a docpack KB, use this frontmatter in your converter output:
-
-```yaml
----
-title: "Section Title"
-summary: |
-  Concise overview of this section and its subsections.
-  Mention key concepts, not just structural details.
-  Use terminology from the source material, not paraphrases.
----
-```
-
-Key rules:
+When generating summaries (via JSONL import or LLM fold mode), follow these rules:
 - Summaries must use the same vocabulary as the source chunks (search indexes chunk content, not summaries).
 - Avoid paraphrasing technical terms (e.g., don't write "authentification" if the source says "identification").
 - Include concept names, function names, and domain terms that users would search for.
@@ -190,10 +176,8 @@ Key rules:
 
 1. **Terminology mismatch** -- LLM-generated summaries paraphrase source terms. If the source says "identification" and the summary says "authentification", searching for "authentification" returns nothing. Always verify summaries use source vocabulary.
 
-2. **Token budget** -- `get` on large nodes returns full subtrees as XML. A node with 800+ children can exceed context windows. Use `toc` with depth limits to scout first.
+2. **Token budget** -- `get` on large documents returns full subtrees as XML. A document with 800+ children can exceed context windows. Use `toc` with depth limits to scout first.
 
-3. **Index pollution** -- Document indexes (table of contents, alphabetical listings) rank highly in FTS5 because they repeat keywords. They contain low-value content. Filter them out or use `title:` prefix to target real sections.
+3. **Broad searches** -- Single-term searches on common words return thousands of hits. Always combine terms with `AND` and use `--limit`.
 
-4. **Broad searches** -- Single-term searches on common words return thousands of hits. Always combine terms with `AND` and use `--limit`.
-
-5. **YAML parsing** -- CLI outputs YAML for `manifest`, `toc`, and `search`. It's meant for human reading. For programmatic access, use XML from `get` or the TypeScript library directly.
+4. **YAML parsing** -- CLI outputs YAML for `manifest`, `toc`, and `search`. It's meant for human reading. For programmatic access, use XML from `get` or the TypeScript library directly.
