@@ -28,7 +28,7 @@ docpack serve ./mykb --mcp
 ## Requirements
 
 - **Node.js >= 20**
-- **better-sqlite3** -- native module. Prebuilt binaries are downloaded automatically for common platforms. If your platform is unsupported, you need `python3`, `make`, and a C++ compiler (gcc/clang or Visual Studio Build Tools).
+- **better-sqlite3** -- native module. Prebuilt binaries are downloaded automatically for common platforms.
 
 ## Usage
 
@@ -49,6 +49,14 @@ docpack manifest ./mykb
 
 ```ts
 import { bundle, query } from "@rlemaigre/docpack";
+```
+
+**As an AI Skill**
+
+AI agents can install the query skill directly using:
+
+```bash
+npx skills add rlemaigre/docpack
 ```
 
 ## Output
