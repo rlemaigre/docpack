@@ -107,7 +107,7 @@ describe("skill generation", () => {
     expect(content).toContain("Getting Started");
   });
 
-  it("SKILL.md contains Usage section with CLI and Script examples", () => {
+  it("SKILL.md contains Usage section with bundled wrapper script", () => {
     setupKB();
 
     generateSkill({ kb: kbDir, output: skillDir, useWhen: "Use when you need test docs." });
@@ -115,10 +115,12 @@ describe("skill generation", () => {
     const content = fs.readFileSync(path.join(skillDir, "SKILL.md"), "utf8");
 
     expect(content).toContain("## Usage");
-    expect(content).toContain("### CLI");
-    expect(content).toContain("### Script");
-    expect(content).toContain("npx @rlemaigre/docpack manifest ./references");
     expect(content).toContain("node ./scripts/docpack.mjs manifest");
+    expect(content).toContain("node ./scripts/docpack.mjs toc");
+    expect(content).toContain("node ./scripts/docpack.mjs get");
+    expect(content).toContain("node ./scripts/docpack.mjs search");
+    // Should NOT reference npx (uses bundled wrapper instead)
+    expect(content).not.toContain("npx @rlemaigre/docpack");
   });
 
   it("wrapper script pins the docpack version", () => {
