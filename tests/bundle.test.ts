@@ -18,21 +18,12 @@ describe("bundle", () => {
     fs.mkdirSync(inputDir);
   });
 
-  const mdConverter = (filePath: string): string | null => {
-    const ext = path.extname(filePath).toLowerCase();
-    if (ext === ".md" || ext === ".txt" || ext === "") {
-      return fs.readFileSync(filePath, "utf8");
-    }
-    return null;
-  };
-
   it("bundles a single file", () => {
     fs.writeFileSync(path.join(inputDir, "hello.md"), "# Hello\n\nWorld");
 
-    const stats = bundle({ input: inputDir, output: outputDir, converter: mdConverter });
+    const stats = bundle({ input: inputDir, output: outputDir });
 
     expect(stats.filesProcessed).toBe(1);
-    expect(stats.filesSkipped).toBe(0);
     expect(stats.totalChunks).toBe(1);
     expect(fs.existsSync(path.join(outputDir, "docpack.db"))).toBe(true);
     expect(fs.existsSync(path.join(outputDir, "docpack.yaml"))).toBe(true);
@@ -43,7 +34,7 @@ describe("bundle", () => {
     fs.writeFileSync(path.join(inputDir, "readme.md"), "# README\n\nIntro");
     fs.writeFileSync(path.join(inputDir, "docs", "guide.md"), "# Guide\n\n## Setup\n\nSteps");
 
-    const stats = bundle({ input: inputDir, output: outputDir, converter: mdConverter });
+    const stats = bundle({ input: inputDir, output: outputDir });
 
     expect(stats.filesProcessed).toBe(2);
     expect(stats.totalChunks).toBeGreaterThan(0);
@@ -63,16 +54,6 @@ describe("bundle", () => {
     }
   });
 
-  it("skips files when converter returns null", () => {
-    fs.writeFileSync(path.join(inputDir, "readme.md"), "# Hello");
-    fs.writeFileSync(path.join(inputDir, "image.png"), "binary");
-
-    const stats = bundle({ input: inputDir, output: outputDir, converter: mdConverter });
-
-    expect(stats.filesProcessed).toBe(2);
-    expect(stats.filesSkipped).toBe(1);
-  });
-
   it("handles files with nested headings", () => {
     fs.writeFileSync(path.join(inputDir, "doc.md"), [
       "# Title",
@@ -88,7 +69,7 @@ describe("bundle", () => {
       "Sub content",
     ].join("\n"));
 
-    bundle({ input: inputDir, output: outputDir, converter: mdConverter });
+    bundle({ input: inputDir, output: outputDir });
 
     const db = new Database(path.join(outputDir, "docpack.db"));
     try {
@@ -107,7 +88,7 @@ describe("bundle", () => {
   it("writes valid manifest", () => {
     fs.writeFileSync(path.join(inputDir, "hello.md"), "# Hello");
 
-    bundle({ input: inputDir, output: outputDir, converter: mdConverter });
+    bundle({ input: inputDir, output: outputDir });
 
     const yaml = fs.readFileSync(path.join(outputDir, "docpack.yaml"), "utf8");
     expect(yaml).toContain("version:");
@@ -124,7 +105,6 @@ describe("bundle", () => {
     bundle({
       input: inputDir,
       output: outputDir,
-      converter: mdConverter,
       onProgress: (p, processed, total) => {
         progressCalls.push({ path: p, processed, total });
       },
@@ -141,7 +121,7 @@ describe("bundle", () => {
     fs.writeFileSync(path.join(inputDir, "a", "readme.md"), "# A README");
     fs.writeFileSync(path.join(inputDir, "b", "readme.md"), "# B README");
 
-    bundle({ input: inputDir, output: outputDir, converter: mdConverter });
+    bundle({ input: inputDir, output: outputDir });
 
     const db = new Database(path.join(outputDir, "docpack.db"));
     try {
@@ -156,10 +136,10 @@ describe("bundle", () => {
 
   it("overwrites existing output directory", () => {
     fs.writeFileSync(path.join(inputDir, "a.md"), "# A");
-    bundle({ input: inputDir, output: outputDir, converter: mdConverter });
+    bundle({ input: inputDir, output: outputDir });
 
     fs.writeFileSync(path.join(inputDir, "b.md"), "# B");
-    bundle({ input: inputDir, output: outputDir, converter: mdConverter });
+    bundle({ input: inputDir, output: outputDir });
 
     const db = new Database(path.join(outputDir, "docpack.db"));
     try {

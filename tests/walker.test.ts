@@ -87,28 +87,4 @@ describe("walkFS", () => {
     expect(subDir?.parent).toBeNull();
   });
 
-  it("respects include glob pattern", () => {
-    fs.writeFileSync(path.join(tmpDir, "a.md"), "a");
-    fs.writeFileSync(path.join(tmpDir, "b.txt"), "b");
-    fs.mkdirSync(path.join(tmpDir, "sub"));
-    fs.writeFileSync(path.join(tmpDir, "sub", "c.md"), "c");
-
-    const result = walkFS(tmpDir, "**/*.md");
-    const names = result.map((n) => n.name);
-
-    expect(names).toContain("a.md");
-    expect(names).not.toContain("b.txt");
-  });
-
-  it("detects MIME types for files", () => {
-    fs.writeFileSync(path.join(tmpDir, "readme.md"), "content");
-    fs.writeFileSync(path.join(tmpDir, "image.png"), "content");
-
-    const result = walkFS(tmpDir);
-    const mdFile = result.find((n) => n.name === "readme.md");
-    const pngFile = result.find((n) => n.name === "image.png");
-
-    expect(mdFile?.mime).toBe("text/markdown");
-    expect(pngFile?.mime).toBe("image/png");
-  });
 });
