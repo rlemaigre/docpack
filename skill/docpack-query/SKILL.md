@@ -103,7 +103,7 @@ npx @rlemaigre/docpack get ./mykb "api-reference-auth"
 
 ## What doesn't work well
 
-- **Searching terms not in source content** -- the summarizer may use different vocabulary than the source. Search the chunk content, not the summaries.
+- **Searching terms not in source content** -- summaries may use different vocabulary than the source. Search the chunk content, not the summaries.
 - **Index nodes** -- document indexes rank highly in search but contain low-value alphabetical listings.
 - **Very large `get` calls** -- a node with 800+ children returns massive XML. Use `toc` with depth limits first.
 - **`toc --depth full` on large KBs** -- can exceed token budgets. Use incremental depth instead.
@@ -169,7 +169,7 @@ kb.close();
 
 ## Effective frontmatter
 
-When generating summaries for a docpack KB, use this frontmatter in your converter output to guide the summarizer:
+When generating summaries for a docpack KB, use this frontmatter in your converter output:
 
 ```yaml
 ---

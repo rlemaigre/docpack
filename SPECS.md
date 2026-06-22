@@ -260,28 +260,71 @@ bundle(options): BundleStats;
 
 ### Summaries
 
-Separate post-processing function. The summarizer is given full access to the KB and decides which nodes to summarize, in what order, and with what context. Docpack stores emitted summaries and rewrites the manifest.
+Two modes for post-processing summarization. Both use **upsert semantics** — existing summaries for untouched slugs are preserved.
+
+#### JSONL file mode
+
+Import summaries from a JSONL file produced by any tool (LLM script, human, etc.). No code to write.
 
 ```ts
 import { summarize } from "@rlemaigre/docpack";
 
-type Summarizer = (
-  kb: KBInstance,
-  emit: (slug: string, summary: string) => void,
-) => Promise<void>;
-
-interface SummarizeOptions {
+interface SummarizeFileOptions {
   input: string;              // path to KB directory (resolves docpack.db)
-  summarizer: Summarizer;     // summarizer callback
+  summaries: string;          // path to JSONL file
 }
 
 summarize(options);
 ```
 
-* `kb` — live KB instance. The summarizer calls `toc()`, `get()`, `search()` to discover and read content.
-* `emit(slug, summary)` — records a summary for the given slug. Called per node the summarizer chooses to summarize.
-* The summarizer decides scope (all nodes, files only, specific subtrees), order (bottom-up, top-down, breadth-first), and context (full content, children summaries, etc.).
-* After the summarizer returns: clears all existing summaries, then rewrites `docpack.yaml` to fill the `text` field per file entry.
+JSONL format — one summary per line:
+```jsonl
+{"slug":"getting-started","summary":"Overview of setup, configuration, and first steps."}
+{"slug":"api-reference","summary":"Complete API documentation covering auth, billing, and webhooks."}
+```
+
+* Unknown slugs are skipped with a warning to stderr.
+* Malformed lines are skipped with a warning.
+* Duplicate slugs: last value wins.
+* Upserts into `nodes.summary` and patches `docpack.yaml` text fields.
+
+#### LLM fold mode
+
+Built-in bottom-up tree fold. Docpack traverses the tree and calls an OpenAI-compatible LLM endpoint with a user-supplied prompt template. No code to write.
+
+```ts
+import { summarize } from "@rlemaigre/docpack";
+
+interface SummarizeLLMOptions {
+  input: string;
+  mode: "llm";
+  model: string;              // model name sent to the endpoint
+  endpoint: string;           // base URL, e.g. "http://localhost:8000/v1"
+  prompt: string;             // template with {title}, {chunk}, {children_summaries}, etc.
+  concurrency?: number;       // parallel requests per level (default: 8)
+  minContentLength?: number;  // pass-through threshold for small leaves (default: 0)
+  apiKey?: string;            // optional, for cloud endpoints
+}
+
+summarize(options);
+```
+
+**Traversal:** bottom-up, level by level. All nodes at the same depth are processed in parallel (bounded by `concurrency`). Parents wait for all children.
+
+**Prompt template variables:**
+
+| Variable | Description |
+|---|---|
+| `{title}` | Node's own title. |
+| `{slug}` | Node's own slug. |
+| `{chunk}` | Node's own content (markdown). Empty for directories. |
+| `{children_titles}` | Ordered list of children titles, one per line. |
+| `{children_summaries}` | Ordered list of `title: summary` pairs, one per line. |
+| `{children_count}` | Number of children. |
+
+**Pass-through:** if `node.children.length === 0` AND (`node.chunk` is absent OR `node.chunk.length < minContentLength`), skip the LLM call. Use the chunk as-is if present, or skip for directories.
+
+**Endpoint:** any OpenAI-compatible `/v1/chat/completions` endpoint (vLLM, Ollama, LM Studio, cloud OpenAI).
 
 ## CLI
 
@@ -295,30 +338,34 @@ Progress to stderr. Stats as JSON to stdout.
 
 ### Summaries
 
-Separate post-processing command. The summarizer script has full access to the KB.
+Two modes via CLI flags.
 
+**JSONL file mode** (default):
 ```bash
-docpack summarize ./mykb --fn ./summarize.ts
+docpack summarize ./mykb --summaries ./summaries.jsonl
 ```
 
-`--fn` points to a script exporting a Summarizer:
-
-```ts
-// summarize.ts
-export default async (kb, emit) => {
-  const manifest = kb.manifest();
-  for (const file of manifest.files) {
-    const doc = kb.get(file.slug);
-    if (!doc) continue;
-    const summary = await summarizeDoc(doc);  // your logic
-    emit(file.slug, summary);
-  }
-};
+**LLM fold mode:**
+```bash
+docpack summarize ./mykb \
+  --mode llm \
+  --model qwen3-8b \
+  --endpoint http://localhost:8000/v1 \
+  --prompt ./prompt.txt \
+  --concurrency 32 \
+  --min-content-length 200
 ```
 
-* The summarizer receives a live KB instance and an `emit(slug, summary)` callback.
-* It decides which nodes to summarize and in what order.
-* Docpack stores emitted summaries and rewrites the manifest.
+* `--summaries` — path to JSONL file (file mode).
+* `--mode llm` — use built-in LLM fold mode.
+* `--model` — model name (LLM mode, required).
+* `--endpoint` — OpenAI-compatible endpoint URL (LLM mode, required).
+* `--prompt` — path to prompt template file (LLM mode, required).
+* `--concurrency` — max parallel LLM requests per level (LLM mode, default: 8).
+* `--min-content-length` — skip LLM call for leaf nodes shorter than this (LLM mode).
+* `--api-key` — API key for cloud endpoints (LLM mode, optional).
+
+Upserts summaries into the KB and patches `docpack.yaml`.
 
 # API — Query
 

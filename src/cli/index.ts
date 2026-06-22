@@ -1,14 +1,15 @@
 #!/usr/bin/env node
+import * as fs from "node:fs";
 import { cac } from "cac";
 import { bundle } from "../bundler";
 import { query } from "../query";
-import { summarize, type Summarizer } from "../post-process/summarize";
+import { summarize } from "../post-process/summarize";
 import { formatXml, formatYaml } from "./format";
 import { startMCPServer, parseDepth } from "./mcp";
 
 const cli = cac("docpack");
 
-cli.version("0.1.0");
+cli.version("0.3.0");
 cli.help();
 
 // ---------------------------------------------------------------------------
@@ -129,16 +130,40 @@ cli
     "summarize <kb>",
     "Run a post-processing summarization pass",
   )
-  .option("--fn <path>", "Path to summarizer script (exports a Summarizer function)")
+  .option("--summaries <path>", "Path to JSONL file with summaries")
+  .option("--mode <mode>", "Summarize mode: 'llm' for built-in LLM fold")
+  .option("--model <name>", "Model name (LLM mode)")
+  .option("--endpoint <url>", "OpenAI-compatible endpoint URL (LLM mode)")
+  .option("--prompt <path>", "Path to prompt template file (LLM mode)")
+  .option("--concurrency <n>", "Max parallel LLM requests per level (LLM mode, default: 8)")
+  .option("--min-content-length <n>", "Skip LLM call for leaf nodes shorter than this (LLM mode)")
+  .option("--api-key <key>", "API key for cloud endpoints (LLM mode)")
   .action(async (kb, options) => {
-    validateRequired(options, ["fn"]);
+    if (options.mode === "llm") {
+      // LLM fold mode
+      validateRequired(options, ["model", "endpoint", "prompt"]);
 
-    const summarizer = await loadScript<Summarizer>(
-      options.fn,
-      "summarizer",
-    );
+      const prompt = fs.readFileSync(options.prompt, "utf8");
 
-    await summarize({ input: kb, summarizer });
+      await summarize({
+        input: kb,
+        mode: "llm",
+        model: options.model,
+        endpoint: options.endpoint,
+        prompt,
+        concurrency: options.concurrency ? Number(options.concurrency) : undefined,
+        minContentLength: options.minContentLength ? Number(options.minContentLength) : undefined,
+        apiKey: options.apiKey,
+      });
+    } else {
+      // JSONL file mode (default)
+      validateRequired(options, ["summaries"]);
+
+      await summarize({
+        input: kb,
+        summaries: options.summaries,
+      });
+    }
   });
 
 // ---------------------------------------------------------------------------
@@ -188,15 +213,4 @@ function validateRequired(options: Record<string, unknown>, keys: string[]): voi
   }
 }
 
-/** Load a script via dynamic import, expecting a default export. */
-async function loadScript<T>(scriptPath: string, label: string): Promise<T> {
-  const { pathToFileURL } = await import("node:url");
-  const path = await import("node:path");
-  const resolved = path.resolve(scriptPath);
-  const mod = await import(pathToFileURL(resolved).href);
-  const fn = mod.default ?? mod;
-  if (typeof fn !== "function") {
-    exitError(`${label} script must export a function (default export)`);
-  }
-  return fn as T;
-}
+

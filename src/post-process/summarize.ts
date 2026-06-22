@@ -3,88 +3,150 @@ import type { Database as DB } from "better-sqlite3";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import YAML from "yaml";
-import { query, type KBInstance } from "../query";
 import type { Manifest } from "../bundler/manifest";
 
-/**
- * User-supplied summarizer callback.
- *
- * Receives a live KB instance and an emit function. The summarizer decides
- * which nodes to summarize, in what order, and with what context.
- *
- * @param kb - Live knowledge base instance with manifest(), toc(), get(), search().
- * @param emit - Call this to record a summary for a node. Last value wins for duplicates.
- */
-export type Summarizer = (
-  kb: KBInstance,
-  emit: (slug: string, summary: string) => void,
-) => Promise<void>;
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
-/** Options for summarize. */
-export interface SummarizeOptions {
+/** Options for JSONL file import mode. */
+export interface SummarizeFileOptions {
   /** Path to the KB directory containing docpack.db and docpack.yaml. */
   input: string;
-  /** Summarizer callback. */
-  summarizer: Summarizer;
+  /** Path to a JSONL file where each line is `{"slug":"...","summary":"..."}`. */
+  summaries: string;
 }
+
+/** Options for built-in LLM bottom-up fold mode. */
+export interface SummarizeLLMOptions {
+  /** Path to the KB directory containing docpack.db and docpack.yaml. */
+  input: string;
+  /** Mode selector. */
+  mode: "llm";
+  /** Model name sent to the endpoint. */
+  model: string;
+  /** Base URL of an OpenAI-compatible endpoint (e.g. `http://localhost:8000/v1`). */
+  endpoint: string;
+  /** Prompt template. Available variables: {title}, {slug}, {chunk}, {children_titles}, {children_summaries}, {children_count}. */
+  prompt: string;
+  /** Maximum parallel LLM requests per tree level. Default: 8. */
+  concurrency?: number;
+  /** Skip LLM call for leaf nodes whose chunk is shorter than this. Default: 0 (disabled). */
+  minContentLength?: number;
+  /** Optional API key for cloud endpoints. */
+  apiKey?: string;
+}
+
+/** Union of all summarize modes. */
+export type SummarizeOptions = SummarizeFileOptions | SummarizeLLMOptions;
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
 
 /**
  * Run a post-processing summarization pass on a knowledge base.
  *
- * Opens the KB, passes it to the user's summarizer along with an emit callback.
- * After the summarizer returns: clears all existing summaries, batch-inserts
- * buffered pairs, and rewrites docpack.yaml with updated text fields.
+ * Two modes:
+ * - **File mode** (`summaries` path): import summaries from a JSONL file.
+ * - **LLM mode** (`mode: "llm"`): bottom-up tree fold with an LLM endpoint.
  *
- * If the summarizer emits nothing, all existing summaries are cleared
- * and the manifest is rewritten without text fields.
+ * Both modes use upsert semantics — existing summaries for untouched slugs
+ * are preserved.
  *
- * @param options - Summarize configuration.
+ * @param options - Summarize configuration (file or LLM mode).
  */
 export async function summarize(options: SummarizeOptions): Promise<void> {
-  const { input, summarizer } = options;
-
-  const kbDir = path.resolve(input);
+  const kbDir = path.resolve(options.input);
   const dbPath = path.join(kbDir, "docpack.db");
   const yamlPath = path.join(kbDir, "docpack.yaml");
 
-  // Open KB for reads (summarizer discovery)
-  const kb = query(kbDir);
-  const buffered = createEmitBuffer();
-
-  try {
-    await summarizer(kb, buffered.emit);
-  } finally {
-    kb.close();
+  if (!fs.existsSync(dbPath)) {
+    throw new Error(`Knowledge base not found: ${dbPath}`);
   }
 
-  // Open separate connection for writes
+  if (isLLMOptions(options)) {
+    await summarizeLLM(options, dbPath, yamlPath);
+  } else {
+    await summarizeFile(options, dbPath, yamlPath);
+  }
+}
+
+/** Type guard for LLM mode options. */
+function isLLMOptions(options: SummarizeOptions): options is SummarizeLLMOptions {
+  return "mode" in options && options.mode === "llm";
+}
+
+// ---------------------------------------------------------------------------
+// JSONL file mode
+// ---------------------------------------------------------------------------
+
+async function summarizeFile(
+  options: SummarizeFileOptions,
+  dbPath: string,
+  yamlPath: string,
+): Promise<void> {
+  const raw = fs.readFileSync(options.summaries, "utf8");
+  const entries = parseJsonl(raw);
+  const deduped = deduplicateEntries(entries);
+
   const db = new Database(dbPath);
   try {
-    // Spec: "clears all existing summaries" — always, even when nothing emitted.
-    const validEntries = filterValidEntries(db, buffered.entries);
-    batchWriteSummaries(db, validEntries);
-    rewriteManifestWithSummaries(yamlPath, db);
+    const valid = filterValidEntries(db, deduped);
+    upsertSummaries(db, valid);
+    patchManifestWithSummaries(yamlPath, db, valid);
   } finally {
     db.close();
   }
 }
 
-/** Buffered summary entries with an emit callback. */
-interface EmitBuffer {
-  emit: (slug: string, summary: string) => void;
-  entries: Array<{ slug: string; summary: string }>;
-  size: number;
+/** Parse a JSONL string into an array of { slug, summary } entries. */
+function parseJsonl(text: string): Array<{ slug: string; summary: string }> {
+  const entries: Array<{ slug: string; summary: string }> = [];
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      process.stderr.write(
+        `[summarize] warning: skipping malformed line: ${trimmed.slice(0, 80)}\n`,
+      );
+      continue;
+    }
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      !("slug" in parsed) ||
+      typeof (parsed as Record<string, unknown>).summary !== "string"
+    ) {
+      process.stderr.write(
+        `[summarize] warning: skipping malformed line: ${trimmed.slice(0, 80)}\n`,
+      );
+      continue;
+    }
+    const entry = parsed as { slug: unknown; summary: string };
+    if (typeof entry.slug !== "string") {
+      process.stderr.write(
+        `[summarize] warning: skipping malformed line: ${trimmed.slice(0, 80)}\n`,
+      );
+      continue;
+    }
+    entries.push({ slug: entry.slug, summary: entry.summary });
+  }
+  return entries;
 }
 
-/** Create an emit callback backed by a Map (last value wins for duplicates). */
-function createEmitBuffer(): EmitBuffer {
+/** Deduplicate entries — last value wins for duplicate slugs. */
+function deduplicateEntries(
+  entries: Array<{ slug: string; summary: string }>,
+): Array<{ slug: string; summary: string }> {
   const map = new Map<string, string>();
-
-  return {
-    emit: (slug: string, summary: string) => { map.set(slug, summary); },
-    get entries() { return Array.from(map.entries()).map(([slug, summary]) => ({ slug, summary })); },
-    get size() { return map.size; },
-  };
+  for (const entry of entries) {
+    map.set(entry.slug, entry.summary);
+  }
+  return Array.from(map.entries()).map(([slug, summary]) => ({ slug, summary }));
 }
 
 /** Validate slugs against the nodes table, warning on unknowns. */
@@ -94,7 +156,6 @@ function filterValidEntries(
 ): Array<{ slug: string; summary: string }> {
   if (entries.length === 0) return [];
 
-  // Single IN query to validate all slugs at once
   const slugs = entries.map((e) => e.slug);
   const placeholders = slugs.map(() => "?").join(",");
   const validRows = db.prepare(
@@ -115,62 +176,357 @@ function filterValidEntries(
   return valid;
 }
 
-/** Clear existing summaries and batch-insert new ones in a transaction. */
-function batchWriteSummaries(
+/** Upsert summaries into the nodes table in a transaction. */
+function upsertSummaries(
   db: DB,
   entries: Array<{ slug: string; summary: string }>,
 ): void {
+  if (entries.length === 0) return;
+
   const tx = db.transaction(() => {
-    db.prepare("UPDATE nodes SET summary = NULL WHERE summary IS NOT NULL").run();
-
-    if (entries.length === 0) return;
-
-    const insertStmt = db.prepare("UPDATE nodes SET summary = ? WHERE slug = ?");
+    const stmt = db.prepare("UPDATE nodes SET summary = ? WHERE slug = ?");
     for (const entry of entries) {
-      insertStmt.run(entry.summary, entry.slug);
+      stmt.run(entry.summary, entry.slug);
     }
   });
 
   tx();
 }
 
+// ---------------------------------------------------------------------------
+// LLM fold mode
+// ---------------------------------------------------------------------------
+
+interface TreeNode {
+  slug: string;
+  title: string;
+  type: string;
+  chunk: string | null;
+  children: TreeNode[];
+}
+
+async function summarizeLLM(
+  options: SummarizeLLMOptions,
+  dbPath: string,
+  yamlPath: string,
+): Promise<void> {
+  const db = new Database(dbPath);
+  try {
+    const tree = buildTree(db);
+    const groups = groupByDepth(tree);
+    const results = new Map<string, string>();
+
+    // Process from deepest level to root (bottom-up)
+    const depths = [...groups.keys()].sort((a, b) => b - a);
+
+    for (const depth of depths) {
+      const nodes = groups.get(depth)!;
+      const concurrency = options.concurrency ?? 8;
+      await processLevel(nodes, depth, options, results, concurrency);
+    }
+
+    const validEntries = Array.from(results.entries()).map(([slug, summary]) => ({
+      slug,
+      summary,
+    }));
+
+    upsertSummaries(db, validEntries);
+    patchManifestWithSummaries(yamlPath, db, validEntries);
+  } finally {
+    db.close();
+  }
+}
+
+/** Fetch all nodes and build a flat tree structure. */
+function buildTree(db: DB): TreeNode[] {
+  const rows = db.prepare(`
+    SELECT slug, title, type, chunk, parent_slug, idx
+    FROM nodes
+    ORDER BY idx
+  `).all() as Array<{
+    slug: string;
+    title: string;
+    type: string;
+    chunk: string | null;
+    parent_slug: string | null;
+    idx: number;
+  }>;
+
+  const bySlug = new Map<string, TreeNode>();
+  for (const row of rows) {
+    bySlug.set(row.slug, {
+      slug: row.slug,
+      title: row.title,
+      type: row.type,
+      chunk: row.chunk,
+      children: [],
+    });
+  }
+
+  // Link children to parents
+  for (const row of rows) {
+    if (row.parent_slug && bySlug.has(row.parent_slug)) {
+      bySlug.get(row.parent_slug)!.children.push(bySlug.get(row.slug)!);
+    }
+  }
+
+  return Array.from(bySlug.values());
+}
+
+/** Group nodes by their depth (distance from nearest root). */
+function groupByDepth(nodes: TreeNode[]): Map<number, TreeNode[]> {
+  const groups = new Map<number, TreeNode[]>();
+
+  // Compute depth via BFS from roots
+  const depthMap = new Map<string, number>();
+  const childrenOf = new Map<string, TreeNode[]>();
+
+  for (const node of nodes) {
+    childrenOf.set(node.slug, node.children);
+  }
+
+  // Find roots (nodes with no parent in the tree)
+  const parentSlugs = new Set(nodes.map((n) => findParentSlug(n, nodes)).filter((s) => s !== null));
+  const roots = nodes.filter((n) => !parentSlugs.has(n.slug));
+
+  const queue: Array<{ slug: string; depth: number }> = roots.map((r) => ({
+    slug: r.slug,
+    depth: 0,
+  }));
+
+  while (queue.length > 0) {
+    const { slug, depth } = queue.shift()!;
+    if (depthMap.has(slug)) continue;
+    depthMap.set(slug, depth);
+
+    const group = groups.get(depth + 1) ?? [];
+    groups.set(depth + 1, group);
+
+    for (const child of (childrenOf.get(slug) ?? [])) {
+      if (!depthMap.has(child.slug)) {
+        queue.push({ slug: child.slug, depth: depth + 1 });
+        group.push(child);
+      }
+    }
+  }
+
+  // Roots are at depth 0
+  const rootGroup = groups.get(0) ?? [];
+  groups.set(0, rootGroup);
+  for (const root of roots) {
+    if (!rootGroup.includes(root)) {
+      rootGroup.push(root);
+    }
+  }
+
+  return groups;
+}
+
+/** Find the parent slug of a node, or null if it's a root. */
+function findParentSlug(node: TreeNode, allNodes: TreeNode[]): string | null {
+  const parent = allNodes.find((n) => n.children.some((c) => c.slug === node.slug));
+  return parent?.slug ?? null;
+}
+
+/** Process all nodes at a single depth level with concurrency control. */
+async function processLevel(
+  nodes: TreeNode[],
+  depth: number,
+  options: SummarizeLLMOptions,
+  results: Map<string, string>,
+  concurrency: number,
+): Promise<void> {
+  // Collect child summaries for each node (already computed from deeper levels)
+  // Children are already ordered by idx from buildTree()
+  const childSummaries = new Map<string, string[]>();
+  for (const node of nodes) {
+    const summaries = node.children.map((child) => results.get(child.slug) ?? "");
+    childSummaries.set(node.slug, summaries);
+  }
+
+  // Process with bounded concurrency
+  const tasks: Promise<void>[] = [];
+  const semaphore = createSemaphore(concurrency);
+
+  for (const node of nodes) {
+    const task = (async () => {
+      await semaphore.acquire();
+      try {
+        const summaries = childSummaries.get(node.slug) ?? [];
+        const summary = await summarizeNode(node, options, summaries);
+        if (summary !== null) {
+          results.set(node.slug, summary);
+        }
+      } finally {
+        semaphore.release();
+      }
+    })();
+    tasks.push(task);
+  }
+
+  await Promise.all(tasks);
+}
+
+/** Simple async semaphore for bounded concurrency. */
+function createSemaphore(limit: number) {
+  let running = 0;
+  const waiting: Array<() => void> = [];
+
+  return {
+    acquire: async () => {
+      if (running < limit) {
+        running++;
+        return;
+      }
+      await new Promise<void>((resolve) => waiting.push(resolve));
+      running++;
+    },
+    release: () => {
+      running--;
+      if (waiting.length > 0) {
+        const next = waiting.shift()!;
+        next();
+      }
+    },
+  };
+}
+
 /**
- * Re-read the manifest and fill the text field from nodes.summary.
- *
- * Reads docpack.yaml, batch-looks up summaries for all file entries,
- * and writes the updated manifest back.
- *
- * @param yamlPath - Path to docpack.yaml.
- * @param db - Open database connection.
+ * Summarize a single node. Returns null if pass-through applies.
  */
-function rewriteManifestWithSummaries(yamlPath: string, db: DB): void {
+async function summarizeNode(
+  node: TreeNode,
+  options: SummarizeLLMOptions,
+  childrenSummaries: string[],
+): Promise<string | null> {
+  // Pass-through: leaf node with no or short chunk
+  const minLen = options.minContentLength ?? 0;
+  const isLeaf = node.children.length === 0;
+  const chunkTooShort = !node.chunk || node.chunk.length < minLen;
+
+  if (isLeaf && chunkTooShort) {
+    // Use existing chunk as summary, or skip if no chunk
+    if (node.chunk) {
+      return node.chunk;
+    }
+    return null;
+  }
+
+  // Fill prompt template
+  const prompt = fillPromptTemplate(options.prompt, node, childrenSummaries);
+
+  // Call LLM endpoint
+  const summary = await callLLMEndpoint(options, prompt);
+  return summary;
+}
+
+/** Fill prompt template variables. */
+function fillPromptTemplate(
+  template: string,
+  node: TreeNode,
+  childrenSummaries: string[],
+): string {
+  const childrenTitles = node.children.map((c) => c.title).join("\n");
+
+  // Build ordered title: summary pairs
+  const childrenSummaryPairs = node.children
+    .map((child, i) => {
+      const summary = childrenSummaries[i] || "(no summary)";
+      return `${child.title}: ${summary}`;
+    })
+    .join("\n");
+
+  return template
+    .replace(/\{title\}/g, node.title)
+    .replace(/\{slug\}/g, node.slug)
+    .replace(/\{chunk\}/g, node.chunk ?? "")
+    .replace(/\{children_titles\}/g, childrenTitles)
+    .replace(/\{children_summaries\}/g, childrenSummaryPairs)
+    .replace(/\{children_count\}/g, String(node.children.length));
+}
+
+/** Call an OpenAI-compatible /chat/completions endpoint. */
+async function callLLMEndpoint(
+  options: SummarizeLLMOptions,
+  prompt: string,
+): Promise<string> {
+  const url = `${options.endpoint}/chat/completions`;
+  const body: Record<string, unknown> = {
+    model: options.model,
+    messages: [{ role: "user", content: prompt }],
+    max_tokens: 1024,
+    temperature: 0,
+  };
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+
+  if (options.apiKey) {
+    headers["Authorization"] = `Bearer ${options.apiKey}`;
+  }
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(
+      `LLM endpoint error (${response.status}): ${text.slice(0, 200)}`,
+    );
+  }
+
+  const data = (await response.json()) as {
+    choices?: Array<{ message?: { content?: string } }>;
+  };
+
+  const content = data.choices?.[0]?.message?.content;
+  if (!content) {
+    throw new Error("LLM endpoint returned no content in response");
+  }
+
+  return content.trim();
+}
+
+// ---------------------------------------------------------------------------
+// Manifest patching (shared)
+// ---------------------------------------------------------------------------
+
+/**
+ * Patch docpack.yaml to fill the text field for affected file entries.
+ *
+ * Reads the existing manifest, updates only the entries whose slugs appear
+ * in the summaries list, and writes back.
+ */
+function patchManifestWithSummaries(
+  yamlPath: string,
+  db: DB,
+  entries: Array<{ slug: string; summary: string }>,
+): void {
+  if (entries.length === 0) return;
+
   const content = fs.readFileSync(yamlPath, "utf8");
   const manifest = YAML.parse(content) as Manifest;
 
-  // Batch-fetch summaries for all file slugs in a single query
-  const fileSlugs = manifest.files.map((f) => f.slug);
   const summaryMap = new Map<string, string>();
-
-  if (fileSlugs.length > 0) {
-    const placeholders = fileSlugs.map(() => "?").join(",");
-    const rows = db.prepare(
-      `SELECT slug, summary FROM nodes WHERE slug IN (${placeholders}) AND summary IS NOT NULL`,
-    ).all(...fileSlugs) as Array<{ slug: string; summary: string }>;
-
-    for (const row of rows) {
-      summaryMap.set(row.slug, row.summary);
-    }
+  for (const entry of entries) {
+    summaryMap.set(entry.slug, entry.summary);
   }
 
+  let changed = false;
   for (const file of manifest.files) {
     const summary = summaryMap.get(file.slug);
-    if (summary) {
+    if (summary !== undefined) {
       file.summary.text = summary;
-    } else {
-      delete file.summary.text;
+      changed = true;
     }
   }
 
-  const yamlStr = YAML.stringify(manifest, { lineWidth: 0 });
-  fs.writeFileSync(yamlPath, yamlStr, "utf8");
+  if (changed) {
+    const yamlStr = YAML.stringify(manifest, { lineWidth: 0 });
+    fs.writeFileSync(yamlPath, yamlStr, "utf8");
+  }
 }

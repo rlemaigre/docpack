@@ -187,21 +187,68 @@ Embeddings and reranking : TBD (requires AI).
 ### summarize
 
 ```bash
-docpack summarize <kb> --fn <path>
+docpack summarize <kb> --summaries <path>
+docpack summarize <kb> --mode llm --model <name> --endpoint <url> --prompt <path>
 ```
 
-Post-processing pass. The script receives a live KB instance and an `emit` callback:
+Post-processing pass. Two modes:
 
-```ts
-export default async function (kb, emit) {
-  const manifest = kb.manifest();
-  for (const file of manifest.files) {
-    const doc = kb.get(file.slug);
-    const summary = await summarizeWithLLM(doc);
-    emit(file.slug, summary);
-  }
-}
+**JSONL file mode** — import summaries from a JSONL file (one `{"slug":"...","summary":"..."}` per line):
+
+```bash
+docpack summarize ./mykb --summaries ./summaries.jsonl
 ```
+
+**LLM fold mode** — built-in bottom-up tree fold with an OpenAI-compatible endpoint:
+
+```bash
+docpack summarize ./mykb \
+  --mode llm \
+  --model qwen3-8b \
+  --endpoint http://localhost:8000/v1 \
+  --prompt ./prompt.txt \
+  --concurrency 32 \
+  --min-content-length 200
+```
+
+Docpack traverses the node tree bottom-up, level by level. At each node it fills the prompt template with the node's content and its children's summaries, then sends a `POST /chat/completions` request. Parents always wait for all children to finish — siblings at the same depth are processed in parallel (bounded by `--concurrency`).
+
+**Tree folding algorithm:**
+
+1. Find all leaf nodes (no children). Process them in parallel.
+2. Move up one level. For each parent, fill the prompt template with its chunk + children summaries. Process in parallel.
+3. Repeat until the root is reached.
+
+**Prompt template variables:**
+
+| Variable | Description |
+|---|---|
+| `{title}` | Node's own title |
+| `{slug}` | Node's own slug |
+| `{chunk}` | Node's own content (Markdown). Empty for directories. |
+| `{children_titles}` | Ordered list of children titles, one per line |
+| `{children_summaries}` | Ordered list of `title: summary` pairs, one per line |
+| `{children_count}` | Number of children |
+
+**Pass-through optimization (`--min-content-length`):**
+
+If a leaf node has no chunk, or its chunk is shorter than `--min-content-length`, the LLM call is skipped. The chunk is used as-is if present, or the node is skipped for directories. This avoids wasting LLM calls on trivial leaves and reduces hallucination risk on tiny inputs.
+
+**Options:**
+
+| Option | Required | Description |
+|---|---|---|
+| `--mode llm` | yes | Select LLM fold mode |
+| `--model <name>` | yes | Model name sent to the endpoint |
+| `--endpoint <url>` | yes | Base URL of an OpenAI-compatible server (e.g. `http://localhost:8000/v1`) |
+| `--prompt <path>` | yes | Path to a prompt template file |
+| `--concurrency <n>` | no | Max parallel LLM requests per level (default: 8) |
+| `--min-content-length <n>` | no | Skip LLM call for leaf nodes shorter than this (default: 0 = disabled) |
+| `--api-key <key>` | no | API key for cloud endpoints |
+
+Works with any OpenAI-compatible endpoint: vLLM, Ollama, LM Studio, cloud OpenAI.
+
+Both modes use upsert semantics — existing summaries for untouched slugs are preserved.
 
 ### serve
 
@@ -259,22 +306,32 @@ kb.close();
 
 ### Summarize
 
+**JSONL file mode** — import summaries from a JSONL file:
+
 ```ts
 import { summarize } from "@rlemaigre/docpack";
 
 await summarize({
   input: "./mykb",
-  async summarizer(kb, emit) {
-    const manifest = kb.manifest();
-    for (const file of manifest.files) {
-      const doc = kb.get(file.slug);
-      if (!doc) continue;
-      const summary = await callLLM(doc);
-      emit(file.slug, summary);
-    }
-  },
+  summaries: "./summaries.jsonl",  // one {"slug":"...","summary":"..."} per line
 });
 ```
+
+**LLM fold mode** — built-in bottom-up tree fold with an LLM endpoint:
+
+```ts
+await summarize({
+  input: "./mykb",
+  mode: "llm",
+  model: "qwen3-8b",
+  endpoint: "http://localhost:8000/v1",
+  prompt: fs.readFileSync("./prompt.txt", "utf8"),
+  concurrency: 32,
+  minContentLength: 200,
+});
+```
+
+Both modes use upsert semantics — existing summaries for untouched slugs are preserved.
 
 ## Data model
 

@@ -67,6 +67,44 @@ You MUST respect the following writing style :
     * Read the commit messages and review the file diffs.
     * Infer what the last sessions were about and where we left off.
 
+# Delta Specs
+
+Delta specs capture the changes for a feature branch — what's changing, why, and the before/after. They keep the branch focused and serve as the basis for commit messages.
+
+**Lifecycle:**
+1. When starting a feature branch, create `DELTA_SPECS.md` at the project root.
+2. Use it to plan and document changes throughout development.
+3. Once the branch is merged (or abandoned), move it to `archived/` with the branch name in the filename: `archived/DELTA_SPECS_<branchname>.md`.
+4. Never keep a `DELTA_SPECS.md` at the root longer than the branch it belongs to.
+
+**Format:**
+```
+# Delta Specs — <branchname>
+
+## Goal
+
+One sentence: what problem does this branch solve?
+
+## Changes
+
+### 1. [Change name]
+
+**Before:** What exists now.
+**After:** What replaces it.
+**Rationale:** Why this change.
+
+### 2. [Change name]
+...
+
+## Affected Files
+
+- `path/to/file` — description of change
+
+## Breaking Changes
+
+List any breaking changes, if applicable.
+```
+
 # Samples
 The directory samples/ contains Markdown files used for testing and demonstration.
 

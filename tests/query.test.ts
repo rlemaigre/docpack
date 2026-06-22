@@ -165,13 +165,17 @@ describe("query", () => {
     it("includes summary text in clipped TOC after summarize()", async () => {
       setupKB();
 
-      // Run summarize to add summary text
+      // Run summarize to add summary text via JSONL file
+      const summariesFile = path.join(tmpDir, "summaries.jsonl");
+      fs.writeFileSync(
+        summariesFile,
+        JSON.stringify({ slug: "guide", summary: "Guide summary text" }) + "\n",
+      );
+
       await import("../src/post-process/summarize").then(async ({ summarize }) => {
         await summarize({
           input: outputDir,
-          summarizer: async (_kb, emit) => {
-            emit("guide", "Guide summary text");
-          },
+          summaries: summariesFile,
         });
       });
 
