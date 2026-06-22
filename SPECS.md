@@ -149,7 +149,11 @@ Directories are internal nodes with no self content (`type: "directory"`). Files
 
 ## Input
 
-The bundler discovers files recursively and reads each as Markdown text (UTF-8). Input files are assumed to be Markdown; conversion from other formats is the caller's responsibility.
+The bundler recursively walks the input directory and reads every file as **Markdown text (UTF-8)**. No file type filtering or conversion is performed — all files are treated as Markdown.
+
+* Files that are not valid Markdown will still be ingested. The parser scans for ATX headings; files with no headings become single-chunk nodes.
+* Non-text files (binary, images, etc.) will fail to parse gracefully — they become empty or garbled nodes. The caller should exclude such files before bundling.
+* Conversion from other formats (PDF, DOCX, etc.) is the caller's responsibility.
 
 ## Markdown Parsing
 

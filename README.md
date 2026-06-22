@@ -1,9 +1,9 @@
 # docpack
 
-Bundle any directory of documents into a portable, queryable knowledge base.
+Bundle a directory of Markdown files into a portable, queryable knowledge base.
 
 ```bash
-docpack bundle --input ./docs --output ./mykb --converter ./convert.ts
+docpack bundle --input ./docs --output ./mykb
 docpack toc ./mykb "getting-started" --depth 2
 docpack search ./mykb "authentication AND OAuth" --limit 5
 ```
@@ -13,8 +13,8 @@ Single binary. CLI, TypeScript library, and MCP server.
 ## Quick start
 
 ```bash
-# Bundle a directory of PDFs
-docpack bundle --input ./docs --output ./mykb --converter ./convert.ts
+# Bundle a directory of Markdown files
+docpack bundle --input ./docs --output ./mykb
 
 # Explore the knowledge base
 docpack manifest ./mykb
@@ -69,6 +69,12 @@ mykb/
   docpack.yaml      # human-readable manifest and entry points
 ```
 
+## Input
+
+The bundler reads files as **Markdown text (UTF-8)**. It recursively walks the input directory, parses ATX headings (`#` through `######`) to build a node hierarchy, and stores everything in SQLite with an FTS5 full-text index.
+
+Conversion from other formats (PDF, DOCX, etc.) is the caller's responsibility — preprocess your files into Markdown before bundling.
+
 ## Cheat sheet
 
 | Command                                    | Output | Use                                      |
@@ -83,16 +89,15 @@ mykb/
 
 ```mermaid
 flowchart LR
-    A[files/] --> B[converter]
-    B -->|Markdown| C[bundle]
-    C --> D[docpack.db]
-    C --> E[docpack.yaml]
-    D --> F[query / search]
-    E --> F
-    F --> G[CLI / MCP / TS library]
+    A[Markdown files/] --> B[bundle]
+    B --> C[docpack.db]
+    B --> D[docpack.yaml]
+    C --> E[query / search]
+    D --> E
+    E --> F[CLI / MCP / TS library]
 ```
 
-The bundler walks the filesystem, delegates each file to a user-supplied converter, parses Markdown headings into a node tree, and stores everything in SQLite with an FTS5 index. The query side reads from the same database.
+The bundler walks the filesystem, reads each file as Markdown, parses headings into a node tree, and stores everything in SQLite with an FTS5 index. The query side reads from the same database.
 
 ### Node hierarchy
 
@@ -110,7 +115,7 @@ graph TD
 Three input types, abstracted into a single `Node` primitive:
 
 - **directory** -- filesystem folder, no self content
-- **file** -- ingested source document, may contain sections
+- **file** -- ingested Markdown document, may contain sections
 - **section** -- Markdown heading, may contain subsections
 
 Every `Node` has a `slug` (globally unique), `title`, `chunk` (self content), and `children`.
@@ -120,28 +125,13 @@ Every `Node` has a `slug` (globally unique), `title`, `chunk` (self content), an
 ### bundle
 
 ```bash
-docpack bundle --input <path> --output <path> --converter <path> [--include <glob>]
+docpack bundle --input <path> --output <path>
 ```
 
-| Option        | Required | Description                                              |
-| ------------- | -------- | -------------------------------------------------------- |
-| `--input`     | yes      | File or directory to bundle                              |
-| `--output`    | yes      | Output directory (creates `docpack.db` + `docpack.yaml`) |
-| `--converter` | yes      | Script exporting a `Converter` function                  |
-| `--include`   | no       | Glob pattern (default: `**/*`)                           |
-
-Converter script:
-
-```ts
-import * as fs from "node:fs";
-
-export default function converter(path: string): string | null {
-  const ext = path.split(".").pop();
-  if (ext === "md") return fs.readFileSync(path, "utf8");
-  if (ext === "txt") return fs.readFileSync(path, "utf8");
-  return null; // skip
-}
-```
+| Option       | Required | Description                                              |
+| ------------ | -------- | -------------------------------------------------------- |
+| `--input`    | yes      | File or directory of Markdown files to bundle            |
+| `--output`   | yes      | Output directory (creates `docpack.db` + `docpack.yaml`) |
 
 Progress to stderr. Stats as JSON to stdout.
 
@@ -231,16 +221,12 @@ import { bundle } from "@rlemaigre/docpack";
 const stats = bundle({
   input: "./docs",
   output: "./mykb",
-  converter: (path) => {
-    // return Markdown string or null to skip
-  },
-  include: "**/*.md",
   onProgress: (path, done, total) => console.log(`${done}/${total}`),
   onError: (path, err) => console.error(err),
 });
 
 console.log(stats);
-// { filesProcessed: 10, filesSkipped: 2, totalChunks: 85, totalBytes: 133714 }
+// { filesProcessed: 10, totalChunks: 85, totalBytes: 133714 }
 ```
 
 ### Query
@@ -336,13 +322,12 @@ SQLite with FTS5. Schema is an internal detail and may change.
 
 - `nodes` -- node tree with slug, type, title, parent, chunk, summary
 - `nodes_fts` -- FTS5 index on title and chunk
-- `originals` -- gzipped source files for lossless re-bundling
 - `closure` -- materialized transitive closure for subtree queries
 
 ## Notes
 
 - The bundler runs entirely synchronous -- no async, no streaming. Single SQLite transaction.
-- The converter handles file I/O, charset detection, and format parsing. The bundler knows nothing about file formats.
+- Input files are read as Markdown (UTF-8). Conversion from other formats is the caller's responsibility.
 - `toc()` is the primary discovery tool. Clipped subtrees carry `Summary` objects that let you aggregate overviews across branches without loading full content.
 - `get()` returns the full subtree. Use `toc()` to find the slug you want, then `get()` to read it.
 - `search()` bypasses the slug gate -- use it for keyword discovery when you don't know the structure.
