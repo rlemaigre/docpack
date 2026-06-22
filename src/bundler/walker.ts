@@ -1,5 +1,4 @@
 import fg from "fast-glob";
-import * as mime from "mime-types";
 import path from "node:path";
 
 /**
@@ -16,7 +15,6 @@ export interface FSNode {
   parent: FSNode | null;
   children: FSNode[];
   index: number;
-  mime?: string;
 }
 
 /**
@@ -29,14 +27,12 @@ export interface FSNode {
  * Top-level nodes have parent: null (the internal virtual root is discarded).
  *
  * @param input - Path to the input file or directory.
- * @param include - Glob pattern for file discovery. Passed to fast-glob.
  * @returns Array of top-level FSNode children.
  */
-export function walkFS(input: string, include?: string): FSNode[] {
+export function walkFS(input: string): FSNode[] {
   const absoluteInput = path.resolve(input);
-  const pattern = include ?? "**/*";
 
-  const entries = fg.globSync(pattern, {
+  const entries = fg.globSync("**/*", {
     cwd: absoluteInput,
     objectMode: true,
     onlyFiles: false,
@@ -162,7 +158,6 @@ function attachFileNodes(
       parent: null,
       children: [],
       index: 0,
-      mime: mime.lookup(name) || undefined,
     };
 
     const parentNode = parentPath ? dirNodes.get(parentPath) : virtualRoot;

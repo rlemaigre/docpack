@@ -19,8 +19,8 @@ export interface MDNode {
  * Parse Markdown headings into a tree of MDNode nodes.
  *
  * Scans line-by-line with fenced code block awareness. No full Markdown parser
- * is used - converters produce imperfect Markdown and full parsers fail on
- * innocuous syntax mistakes.
+ * is used — real-world Markdown often has minor syntax issues and full parsers
+ * fail on them.
  *
  * Root construction rules:
  * - No preamble + h1 exists -> root = h1 node (filename discarded).
@@ -28,7 +28,7 @@ export interface MDNode {
  * - No headings at all -> root = file node (title from filename, chunk = all content).
  *
  * @param filename - Basename used as fallback title when no h1 promotes to root.
- * @param markdown - Raw Markdown string produced by the converter.
+ * @param markdown - Raw Markdown string read from the file.
  * @returns Root MDNode representing the file or top-level heading.
  */
 export function walkMD(filename: string, markdown: string): MDNode {

@@ -1,5 +1,5 @@
 export { bundle } from "./bundler";
-export type { BundleOptions, BundleStats, Converter } from "./bundler";
+export type { BundleOptions, BundleStats } from "./bundler";
 
 export { query } from "./query";
 export type { KBInstance, Summary, TOC, Document, Manifest, SearchHit, SearchResults, SearchParams } from "./query";

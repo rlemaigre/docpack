@@ -1,6 +1,5 @@
 import type { Database, Statement } from "better-sqlite3";
-import * as crypto from "node:crypto";
-import * as zlib from "node:zlib";
+import * as fs from "node:fs";
 import { toSlug } from "../utils/slug";
 import type { FSNode } from "./walker";
 import { walkMD } from "./parser";
@@ -10,11 +9,10 @@ export interface InsertStats {
   totalChunks: number;
   totalBytes: number;
   filesProcessed: number;
-  filesSkipped: number;
 }
 
 /**
- * Walk the FSNode tree, convert files, and insert into the database.
+ * Walk the FSNode tree, read Markdown files, and insert into the database.
  *
  * All inserts run inside a single synchronous transaction. After the transaction,
  * the closure table is materialized via recursive CTE and FTS5 is synced.
@@ -24,7 +22,6 @@ export interface InsertStats {
  *
  * @param db - Open database connection (caller must close).
  * @param roots - Top-level filesystem nodes from walkFS.
- * @param converter - Sync function that returns Markdown or null to skip.
  * @param onProgress - Optional callback called per file.
  * @param onError - Optional callback called on file errors.
  * @returns Insert statistics (chunk counts, byte totals, file counts).
@@ -32,19 +29,16 @@ export interface InsertStats {
 export function insertTree(
   db: Database,
   roots: FSNode[],
-  converter: (path: string) => string | null,
   onProgress?: (path: string, processed: number, total: number) => void,
   onError?: (path: string, error: string) => void,
 ): InsertStats {
   const insertNode = prepareInsertNode(db);
-  const insertOriginal = prepareInsertOriginal(db);
   const existsStmt = prepareExistsCheck(db);
 
   const stats: InsertStats = {
     totalChunks: 0,
     totalBytes: 0,
     filesProcessed: 0,
-    filesSkipped: 0,
   };
 
   const totalFiles = countFilesInTree(roots);
@@ -53,8 +47,8 @@ export function insertTree(
   const tx = db.transaction((roots: FSNode[]) => {
     for (const root of roots) {
       insertNodeRecursive(
-        root, null, db, converter, existsStmt,
-        insertNode, insertOriginal, stats, totalFiles, onProgress, onError,
+        root, null, db, existsStmt,
+        insertNode, stats, totalFiles, onProgress, onError,
       );
     }
   });
@@ -76,14 +70,6 @@ function prepareInsertNode(db: Database): Statement {
   return db.prepare(`
     INSERT INTO nodes (slug, type, title, parent_slug, idx, chunk, summary)
     VALUES (@slug, @type, @title, @parent_slug, @idx, @chunk, @summary)
-  `);
-}
-
-/** Prepare the INSERT statement for the originals table. */
-function prepareInsertOriginal(db: Database): Statement {
-  return db.prepare(`
-    INSERT INTO originals (slug, path, data, mime, sha256)
-    VALUES (@slug, @path, @data, @mime, @sha256)
   `);
 }
 
@@ -110,7 +96,7 @@ function countFilesInTree(nodes: FSNode[]): number {
  * Recursively insert an FSNode and all its children into the database.
  *
  * For directory nodes: insert a directory row, then recurse into children.
- * For file nodes: convert, parse Markdown, insert file row + heading children + original.
+ * For file nodes: read Markdown, parse headings, insert file row + heading children.
  *
  * @returns The resolved slug for the inserted node.
  */
@@ -118,10 +104,8 @@ function insertNodeRecursive(
   fsNode: FSNode,
   parentSlug: string | null,
   db: Database,
-  converter: (path: string) => string | null,
   existsStmt: Statement,
   insertNode: Statement,
-  insertOriginal: Statement,
   stats: InsertStats,
   totalFiles: number,
   onProgress?: (path: string, processed: number, total: number) => void,
@@ -130,14 +114,14 @@ function insertNodeRecursive(
   if (fsNode.type === "directory") {
     const slug = insertDirectoryNode(fsNode, parentSlug, existsStmt, insertNode);
     for (const child of fsNode.children) {
-      insertNodeRecursive(child, slug, db, converter, existsStmt, insertNode, insertOriginal, stats, totalFiles, onProgress, onError);
+      insertNodeRecursive(child, slug, db, existsStmt, insertNode, stats, totalFiles, onProgress, onError);
     }
     return slug;
   }
 
   return insertFileNode(
-    fsNode, parentSlug, db, converter, existsStmt,
-    insertNode, insertOriginal, stats, totalFiles, onProgress, onError,
+    fsNode, parentSlug, db, existsStmt,
+    insertNode, stats, totalFiles, onProgress, onError,
   );
 }
 
@@ -166,15 +150,13 @@ function insertDirectoryNode(
   return slug;
 }
 
-/** Insert a file node: convert, parse, store original, insert heading children. */
+/** Insert a file node: read Markdown, parse, insert heading children. */
 function insertFileNode(
   fsNode: FSNode,
   parentSlug: string | null,
   db: Database,
-  converter: (path: string) => string | null,
   existsStmt: Statement,
   insertNode: Statement,
-  insertOriginal: Statement,
   stats: InsertStats,
   totalFiles: number,
   onProgress?: (path: string, processed: number, total: number) => void,
@@ -186,10 +168,14 @@ function insertFileNode(
     onProgress(fsNode.path, stats.filesProcessed, totalFiles);
   }
 
-  const markdown = converter(fsNode.absolutePath);
-
-  if (markdown === null) {
-    stats.filesSkipped++;
+  let markdown: string;
+  try {
+    markdown = fs.readFileSync(fsNode.absolutePath, "utf8");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (onError) {
+      onError(fsNode.path, message);
+    }
     return "";
   }
 
@@ -208,9 +194,6 @@ function insertFileNode(
     chunk: mdTree.chunk,
     summary: null,
   });
-
-  // Store gzipped original (after node exists for FK constraint)
-  storeOriginal(insertOriginal, slug, fsNode, markdown);
 
   // Track chunk stats for file node itself
   trackChunkStats(mdTree.chunk, stats);
@@ -257,35 +240,6 @@ function insertMDNode(
   for (const child of mdNode.children) {
     insertMDNode(child, slug, db, existsStmt, insertNode, stats, 0);
   }
-}
-
-// ---------------------------------------------------------------------------
-// Originals storage
-// ---------------------------------------------------------------------------
-
-/** Gzip raw file bytes, compute SHA256, and store in originals table. */
-function storeOriginal(
-  stmt: Statement,
-  slug: string,
-  fsNode: FSNode,
-  markdown: string,
-): void {
-  const raw = Buffer.from(markdown, "utf8");
-  const gzipped = zlib.gzipSync(raw);
-  const sha256 = computeSha256(raw);
-
-  stmt.run({
-    slug,
-    path: fsNode.path,
-    data: gzipped,
-    mime: fsNode.mime ?? "application/octet-stream",
-    sha256,
-  });
-}
-
-/** Compute SHA256 hex digest of a buffer. */
-function computeSha256(data: Buffer): string {
-  return crypto.createHash("sha256").update(data).digest("hex");
 }
 
 // ---------------------------------------------------------------------------

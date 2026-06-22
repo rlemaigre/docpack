@@ -1,6 +1,6 @@
 # Project
 
-`docpack` — a TypeScript library for turning a directory of documents into a portable, queryable knowledge base, and querying it back. Published as `@rlemaigre/docpack`. The CLI wraps the same TypeScript library for both bundling and querying.
+`docpack` — a TypeScript library for turning a directory of Markdown files into a portable, queryable knowledge base, and querying it back. Published as `@rlemaigre/docpack`. The CLI wraps the same TypeScript library for both bundling and querying.
 
 # Language
 
@@ -10,7 +10,7 @@ TypeScript.
 
 1. **AI skill generation** — an agent uses the higher-order [Agent Skill](#agent-skill) to turn a folder of documents into a self-contained skill it (or another agent) can load. See [Agent Skill](#agent-skill).
 2. **Mini-RAG** — efficient retrieval from a local knowledge base without a vector DB or server. FTS + structured queries + optional embeddings.
-3. **Unified bundle** — any directory of text files → single portable file. Language-agnostic consumption via the query CLI.
+3. **Unified bundle** — any directory of Markdown files → single portable file. Language-agnostic consumption via the query CLI.
 
 # Contracts
 
@@ -23,20 +23,14 @@ TypeScript.
 
 ## Bundler
 
-Recursively walks a file or directory, aggregating data into a uniform, hierarchical view of knowledge, where the file types and the bondaries between file content structure and directory structure is abstracted away.
+Recursively walks a file or directory of Markdown files, aggregating data into a uniform, hierarchical view of knowledge, where the boundaries between file content structure and directory structure are abstracted away.
 
 1. Converts the hierarchy of directories and files into a tree of `Nodes`.
-2. For each file :
-  1. Delegates to a *converter* (user-supplied) to turn the file content into MarkDown.
-  2. Parses the result to extract the internal hierarchy of the file and extends the tree initialized in 1. with one `Nodes` for each section.
+2. For each file:
+  1. Reads the file as Markdown.
+  2. Parses headings to extract the internal hierarchy and extends the tree with one `Node` for each section.
 
-Original files are never modified or deleted. They are also stored (gzipped) in the `originals` table of the DB for lossless re-bundling — e.g. when upgrading to a newer docpack version with an improved schema or XML format.
-
-## Converter
-
-A synchronous function that receives a file path and returns Markdown. The converter handles file I/O, charset detection, format parsing, and text transformation. The bundler knows nothing about file formats.
-
-The converter returns a Markdown string or `null` to skip. The bundler parses headings (`#`, `##`, …) to build the hierarchy. The bundler runs entirely within a single synchronous SQLite transaction — no async involved.
+The bundler runs entirely within a single synchronous SQLite transaction — no async involved. Input files are assumed to be Markdown; conversion from other formats is the caller's responsibility.
 
 ## Knowledge Base
 
@@ -96,14 +90,14 @@ A **higher-order skill** (or skill factory) that an agent loads to learn how to 
 The higher-order skill teaches the agent:
 
 * How to import and call the `bundle()` function.
-* How to write a converter lambda for the target document formats.
+* How to prepare Markdown files as input.
 * How to trigger the bundling process and handle progress/errors.
 * How to query the resulting KB using `toc()` and `get()`.
 * How to trigger the skill generation post-processing step.
 
 Guided by the higher-order skill, the agent follows three steps:
 
-1. **Bundle** — the agent calls `bundle()` with an appropriate converter, producing a KB directory (`docpack.db` + `docpack.yaml`).
+1. **Bundle** — the agent calls `bundle()` on a directory of Markdown files, producing a KB directory (`docpack.db` + `docpack.yaml`).
 2. **Explore** — the agent queries the KB using `toc()` and `get()` to understand its structure and content.
 3. **Generate** — the agent triggers a post-processing step, supplying natural language context (what the KB covers, when to use it, domain specifics). This fills a `SKILL.md` template.
 
@@ -140,7 +134,7 @@ Node = { type : "directory" | "file" | "section", title : string, slug : string,
 The hierarchy has two dimensions:
 
 1. **Horizontal** — the directory tree above documents (folders → files). Built by the bundler from the filesystem.
-2. **Vertical** — the internal structure within each document (sections → subsections → leaves). Built by the bundler from Markdown headings produced by the converter.
+2. **Vertical** — the internal structure within each document (sections → subsections → leaves). Built by the bundler from Markdown headings.
 
 Directories are internal nodes with no self content (`type: "directory"`). Files are ingested source documents (`type: "file"`). Sections are Markdown heading nodes (`type: "section"`). Files and sections can be internal or leaf nodes.
 
@@ -155,11 +149,9 @@ Directories are internal nodes with no self content (`type: "directory"`). Files
 
 ## Input
 
-The bundler discovers files and passes each file path to the converter. The converter reads the file, handles charset and format (PDF, DOCX, Markdown, etc.), and returns Markdown.
+The bundler discovers files recursively and reads each as Markdown text (UTF-8). Input files are assumed to be Markdown; conversion from other formats is the caller's responsibility.
 
-## Intermediate — Markdown
-
-Markdown is the intermediate format between converter and bundler.
+## Markdown Parsing
 
 * **Headings** — ATX only (`#` through `######`). Regex: `^(#{1,6})\s+(.+)$`.
 * **Content before first heading** — becomes self content of the file node itself.
@@ -240,20 +232,15 @@ Implementation. The CLI wraps this.
 ```ts
 import { bundle } from "@rlemaigre/docpack";
 
-type Converter = (path: string) => string | null;
-
 interface BundleOptions {
   input: string;              // path to file or directory
   output: string;             // path to output directory (e.g. "./mykb" — produces mykb/docpack.db + mykb/docpack.yaml)
-  converter: Converter;       // converter callback
-  include?: string;           // glob pattern (default: "**/*"). Uses fast-glob. Matches against full relative path.
   onProgress?: (path: string, processed: number, total: number) => void;
   onError?: (path: string, error: string) => void;
 }
 
 interface BundleStats {
   filesProcessed: number;
-  filesSkipped: number;
   totalChunks: number;
   totalBytes: number;
 }
@@ -261,9 +248,7 @@ interface BundleStats {
 bundle(options): BundleStats;
 ```
 
-* The bundler passes the absolute file path to the converter. The converter reads, decodes, and converts.
-* The converter returns Markdown (string) or `null` to skip.
-* The bundler parses Markdown headings to build the chunk hierarchy.
+* The bundler reads each file as Markdown, parses headings to build the chunk hierarchy.
 * `onProgress` — called per file. Caller can display a spinner, log, or ignore.
 * `onError` — called per failed file. Bundler skips and keeps going.
 * Produces `<output>/docpack.db` (SQLite) and `<output>/docpack.yaml` (manifest). Creates parent dirs. Overwrites existing output.
@@ -299,10 +284,8 @@ summarize(options);
 Wraps the TypeScript library. Calls `bundle()` internally.
 
 ```bash
-docpack bundle --input ./docs --output ./mykb --converter ./convert.ts [--include "**/*"]
+docpack bundle --input ./docs --output ./mykb
 ```
-
-The `--converter` points to a script that exports a Converter function (default export or `module.exports`).
 
 Progress to stderr. Stats as JSON to stdout.
 
@@ -467,17 +450,6 @@ CREATE TABLE nodes (
 
 CREATE VIRTUAL TABLE nodes_fts USING fts5(title, chunk, content='nodes');
 
--- Original file content, stored for lossless re-bundling (e.g. version upgrades).
--- Only populated for file nodes (not directories or sections). Gzipped.
--- `path` is relative to the bundler's `input`, normalized forward slashes.
-CREATE TABLE originals (
-  slug    TEXT PRIMARY KEY REFERENCES nodes(slug),
-  path    TEXT NOT NULL,
-  data    BLOB NOT NULL,
-  mime    TEXT NOT NULL,
-  sha256  TEXT NOT NULL
-);
-
 -- Transitive closure. Materialized at bundle time, read-only thereafter.
 -- Avoids recursive CTEs or iterative TypeScript calls for subtree queries.
 -- Used by: get() (fetch all descendants), toc() (compute Summary stats), summarize() (merge subtree content).
@@ -523,5 +495,5 @@ Relationships lay the groundwork for a knowledge graph: documents reference each
 ## v2+
 
 * **Web UI** — `docpack serve ./mykb --ui` spins up a local web app for browsing, searching, and exploring the knowledge base. Browser-based TOC navigation, FTS search, graph visualization when embeddings and relationships are available.
-* **Incremental updates** — store file hashes alongside originals to detect changes. Enable `--watch` mode or manual `docpack update` for incremental KB rebuilds. KB lives in a `.docpack/` folder at document root (like `.git`), updating automatically on file changes or on demand.
+* **Incremental updates** — track file modification times to detect changes. Enable `--watch` mode or manual `docpack update` for incremental KB rebuilds. KB lives in a `.docpack/` folder at document root (like `.git`), updating automatically on file changes or on demand.
 * **AI-authored documents** — agents can create new Markdown files in an `ai/` directory alongside `docpack.db` and `docpack.yaml`. An incremental re-bundle ingests these into the KB, and a post-processing step computes bidirectional relationships between AI-authored and source documents. Example: an agent reading a novel creates one document per character in `ai/characters/`. Each chapter relates to the characters that appear in it; each character document relates back to the chapters they appear in. This lets agents autonomously build and evolve layered knowledge on top of source material.

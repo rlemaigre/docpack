@@ -42,13 +42,11 @@
     "better-sqlite3": "^12.11.1",
     "cac": "^7.0.0",
     "fast-glob": "^3.3.3",
-    "mime-types": "^3.0.2",
     "xmlbuilder": "^15.1.1",
     "yaml": "^2.9.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
-    "@types/mime-types": "^3.0.1",
     "@types/node": "^26.0.0",
     "@typescript-eslint/eslint-plugin": "^8.61.1",
     "@typescript-eslint/parser": "^8.61.1",

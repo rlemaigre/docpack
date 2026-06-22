@@ -10,7 +10,6 @@ import type { Database } from "better-sqlite3";
 export function createSchema(db: Database): void {
   createNodesTable(db);
   createFTS5Table(db);
-  createOriginalsTable(db);
   createClosureTable(db);
   createRelationshipTables(db);
 }
@@ -33,18 +32,6 @@ function createNodesTable(db: Database): void {
 function createFTS5Table(db: Database): void {
   db.exec(`
     CREATE VIRTUAL TABLE IF NOT EXISTS nodes_fts USING fts5(title, chunk, content='nodes')
-  `);
-}
-
-function createOriginalsTable(db: Database): void {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS originals (
-      slug    TEXT PRIMARY KEY REFERENCES nodes(slug),
-      path    TEXT NOT NULL,
-      data    BLOB NOT NULL,
-      mime    TEXT NOT NULL,
-      sha256  TEXT NOT NULL
-    )
   `);
 }
 

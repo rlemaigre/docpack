@@ -1,8 +1,6 @@
 #!/usr/bin/env node
 import { cac } from "cac";
-import * as path from "node:path";
-import { pathToFileURL } from "node:url";
-import { bundle, type Converter } from "../bundler";
+import { bundle } from "../bundler";
 import { query } from "../query";
 import { summarize, type Summarizer } from "../post-process/summarize";
 import { formatXml, formatYaml } from "./format";
@@ -19,25 +17,16 @@ cli.help();
 cli
   .command(
     "bundle",
-    "Bundle a directory of documents into a knowledge base",
+    "Bundle a directory of Markdown files into a knowledge base",
   )
   .option("--input <path>", "Path to input file or directory")
   .option("--output <path>", "Path to output directory")
-  .option("--converter <path>", "Path to converter script (exports a Converter function)")
-  .option("--include <pattern>", "Glob pattern for file discovery")
-  .action(async (options) => {
-    validateRequired(options, ["input", "output", "converter"]);
-
-    const converter = await loadScript<Converter>(
-      options.converter,
-      "converter",
-    );
+  .action((options) => {
+    validateRequired(options, ["input", "output"]);
 
     const stats = bundle({
       input: options.input,
       output: options.output,
-      converter,
-      include: options.include,
       onProgress: (file, processed, total) => {
         process.stderr.write(`  ${processed}/${total} ${file}\n`);
       },
@@ -201,6 +190,8 @@ function validateRequired(options: Record<string, unknown>, keys: string[]): voi
 
 /** Load a script via dynamic import, expecting a default export. */
 async function loadScript<T>(scriptPath: string, label: string): Promise<T> {
+  const { pathToFileURL } = await import("node:url");
+  const path = await import("node:path");
   const resolved = path.resolve(scriptPath);
   const mod = await import(pathToFileURL(resolved).href);
   const fn = mod.default ?? mod;
@@ -209,5 +200,3 @@ async function loadScript<T>(scriptPath: string, label: string): Promise<T> {
   }
   return fn as T;
 }
-
-
