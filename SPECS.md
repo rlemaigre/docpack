@@ -486,6 +486,8 @@ interface SearchHit {
   title: string;
   text: string;         // matched document's content
   rank: number;         // BM25 score
+  prev?: string;        // slug of previous sibling, sections only
+  next?: string;        // slug of next sibling, sections only
 }
 
 interface SearchResults {
@@ -510,7 +512,7 @@ kb.search(params);    // SearchResults
 * `manifest()` — reads `docpack.yaml`. Returns version, aggregate statistics, and metadata fields (`home`, `description`, `url`, `exportedAt`). Compact — no file enumeration.
 * `toc(slug, depth)` — returns the hierarchy rooted at `slug`. `depth` is a number (levels to unfold, `0` = root only) or `'full'` (full tree, no clipping). Clipped subtrees carry `Summary` for semantic discovery.
 * `get(slug)` — returns the document and its subtree. Returns `null` if the slug does not exist.
-* `search(params)` — full-text search over node titles and chunk content using SQLite FTS5. `query` accepts the full FTS5 query language (plain words, phrases, AND/OR/NOT, prefix, NEAR, column-specific). Results ranked by BM25 score. Each hit carries the matched `text`. `limit` and `offset` are required. `total` gives the full result set size.
+* `search(params)` — full-text search over node titles and chunk content using SQLite FTS5. `query` accepts the full FTS5 query language (plain words, phrases, AND/OR/NOT, prefix, NEAR, column-specific). Results ranked by BM25 score. Each hit carries the matched `text` and, for section documents, `prev`/`next` sibling navigation slugs. `limit` and `offset` are required. `total` gives the full result set size.
 * `parent`, `prev`, `next` on any `Document` — navigation slugs derived from structure. `parent` is present on all non-root documents. `prev`/`next` present only on sections (ordered children of a file). Absent when not applicable.
 * `Summary` merges structural stats and semantic text. On clipped TOC documents, aggregating summaries across branches lets the agent reconstruct a transversal overview of the entire tree — making TOC the primary semantic discovery tool.
 * `get()` omits `Summary` because the agent already obtained it when navigating via `manifest()` or `toc()` to discover the target slug in the first place.
