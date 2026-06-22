@@ -6,6 +6,8 @@ export interface SearchHit {
   title: string;
   text: string;
   rank: number;
+  prev?: string;  // slug of previous sibling, sections only
+  next?: string;  // slug of next sibling, sections only
 }
 
 /** Search results with total count and paginated hits. */
@@ -37,9 +39,13 @@ export function search(db: Database, params: SearchParams): SearchResults {
   const total = countMatches(db, query);
   const rawHits = fetchRankedHits(db, query, limit, offset);
 
+  // Fetch prev/next navigation for matched slugs
+  const slugs = rawHits.map((h) => h.slug);
+  const navBySlug = slugs.length > 0 ? fetchNavBySlug(db, slugs) : new Map();
+
   return {
     total,
-    hits: rawHits.map(mapToSearchHit),
+    hits: rawHits.map((h) => mapToSearchHit(h, navBySlug)),
   };
 }
 
@@ -74,11 +80,54 @@ function fetchRankedHits(
 }
 
 /** Map a raw database hit to a SearchHit. */
-function mapToSearchHit(h: { slug: string; title: string; chunk: string | null; rank: number }): SearchHit {
+function mapToSearchHit(
+  h: { slug: string; title: string; chunk: string | null; rank: number },
+  navBySlug: Map<string, { prev: string | null; next: string | null }>,
+): SearchHit {
+  const nav = navBySlug.get(h.slug);
   return {
     slug: h.slug,
     title: h.title,
     text: h.chunk ?? "",
     rank: h.rank,
+    ...(nav?.prev ? { prev: nav.prev } : {}),
+    ...(nav?.next ? { next: nav.next } : {}),
   };
+}
+
+/**
+ * Fetch prev/next navigation for a list of slugs using window functions.
+ * Returns a map of slug -> { prev, next } for sections only.
+ */
+function fetchNavBySlug(
+  db: Database,
+  slugs: string[],
+): Map<string, { prev: string | null; next: string | null }> {
+  const placeholders = slugs.map(() => "?").join(",");
+  const rows = db.prepare(`
+    SELECT
+      slug,
+      type,
+      LAG(slug) OVER (PARTITION BY parent_slug ORDER BY idx) AS prev_slug,
+      LEAD(slug) OVER (PARTITION BY parent_slug ORDER BY idx) AS next_slug
+    FROM nodes
+    WHERE slug IN (${placeholders})
+  `).all(...slugs) as Array<{
+    slug: string;
+    type: string;
+    prev_slug: string | null;
+    next_slug: string | null;
+  }>;
+
+  const navMap = new Map<string, { prev: string | null; next: string | null }>();
+  for (const row of rows) {
+    // prev/next only for sections
+    if (row.type === "section") {
+      navMap.set(row.slug, {
+        prev: row.prev_slug,
+        next: row.next_slug,
+      });
+    }
+  }
+  return navMap;
 }

@@ -6,3 +6,6 @@ export type { KBInstance, Summary, TOC, Document, Manifest, SearchHit, SearchRes
 
 export { summarize } from "./post-process/summarize";
 export type { SummarizeOptions, SummarizeFileOptions, SummarizeLLMOptions } from "./post-process/summarize";
+
+export { generateSkill } from "./skill/generate";
+export type { GenerateSkillOptions } from "./skill/generate";

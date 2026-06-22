@@ -112,13 +112,25 @@ Guided by the higher-order skill, the agent follows three steps:
 2. **Explore** — the agent queries the KB using `toc()` and `get()` to understand its structure and content.
 3. **Generate** — the agent triggers a post-processing step, supplying natural language context (what the KB covers, when to use it, domain specifics). This fills a `SKILL.md` template.
 
-The output is a **generated skill** package containing:
+### Skill Package Output
 
-* `docpack.db` — the SQLite knowledge base.
-* `docpack.yaml` — the manifest.
-* `SKILL.md` — explains what is bundled, when and how to use it, and how to query the KB.
+The generated skill is a self-contained directory:
 
-The generated skill is self-contained. Any agent loading it can query the KB using `npx @rlemaigre/docpack` without needing the higher-order skill or docpack source code.
+```
+<output>/
+  SKILL.md
+  references/
+    docpack.db
+    docpack.yaml
+  scripts/
+    docpack.mjs
+```
+
+* `SKILL.md` — auto-generated from manifest metadata + home TOC (depth 1) + `--use-when` text, rendered via Eta template (`src/skill/templates/skill.md.eta`). Contains frontmatter (`name`, `description`), KB overview section, structure section, and usage section with CLI commands.
+* `references/` — the KB directory (`docpack.db` + `docpack.yaml`).
+* `scripts/docpack.mjs` — thin wrapper script (~1KB) that pins `npx @rlemaigre/docpack@<version>` using the version from package.json at generation time. Resolves `references/` path relative to `import.meta.dirname`. Accepts subcommands via CLI args: `manifest`, `toc <slug> [--depth <n|full>]`, `get <slug>`, `search <query> [--limit <n>] [--offset <n>]`.
+
+The generated skill is self-contained. Any agent loading it can query the KB using the bundled `scripts/docpack.mjs` wrapper without needing the higher-order skill or docpack source code.
 
 Skill generation is an optional post-processing step, separate from bundling. The bundler produces data; the skill generator produces agent instructions.
 
@@ -289,6 +301,24 @@ bundle(options): BundleStats;
 * Produces `<output>/docpack.db` (SQLite) and `<output>/docpack.yaml` (manifest). Creates parent dirs. Overwrites existing output.
 * FTS5 index synced once at bundle time (after all chunks inserted). No triggers.
 
+### Skill Generation
+
+Produce a self-contained agent skill package from an existing KB.
+
+```ts
+import { generateSkill } from "@rlemaigre/docpack";
+
+interface GenerateSkillOptions {
+  input: string;              // path to KB directory (resolves docpack.db)
+  useWhen: string;            // imperative description of when to use the skill
+  output: string;             // path to output skill directory
+}
+
+generateSkill(options);
+```
+
+Reads the KB manifest and home TOC (depth 1), renders the SKILL.md template, copies the KB to `references/`, and generates `scripts/docpack.mjs` wrapper. Template: `src/skill/templates/skill.md.eta`.
+
 ### Summaries
 
 Two modes for post-processing summarization. Both use **upsert semantics** — existing summaries for untouched slugs are preserved.
@@ -456,6 +486,8 @@ interface SearchHit {
   title: string;
   text: string;         // matched document's content
   rank: number;         // BM25 score
+  prev?: string;        // slug of previous sibling, sections only
+  next?: string;        // slug of next sibling, sections only
 }
 
 interface SearchResults {
@@ -480,7 +512,7 @@ kb.search(params);    // SearchResults
 * `manifest()` — reads `docpack.yaml`. Returns version, aggregate statistics, and metadata fields (`home`, `description`, `url`, `exportedAt`). Compact — no file enumeration.
 * `toc(slug, depth)` — returns the hierarchy rooted at `slug`. `depth` is a number (levels to unfold, `0` = root only) or `'full'` (full tree, no clipping). Clipped subtrees carry `Summary` for semantic discovery.
 * `get(slug)` — returns the document and its subtree. Returns `null` if the slug does not exist.
-* `search(params)` — full-text search over node titles and chunk content using SQLite FTS5. `query` accepts the full FTS5 query language (plain words, phrases, AND/OR/NOT, prefix, NEAR, column-specific). Results ranked by BM25 score. Each hit carries the matched `text`. `limit` and `offset` are required. `total` gives the full result set size.
+* `search(params)` — full-text search over node titles and chunk content using SQLite FTS5. `query` accepts the full FTS5 query language (plain words, phrases, AND/OR/NOT, prefix, NEAR, column-specific). Results ranked by BM25 score. Each hit carries the matched `text` and, for section documents, `prev`/`next` sibling navigation slugs. `limit` and `offset` are required. `total` gives the full result set size.
 * `parent`, `prev`, `next` on any `Document` — navigation slugs derived from structure. `parent` is present on all non-root documents. `prev`/`next` present only on sections (ordered children of a file). Absent when not applicable.
 * `Summary` merges structural stats and semantic text. On clipped TOC documents, aggregating summaries across branches lets the agent reconstruct a transversal overview of the entire tree — making TOC the primary semantic discovery tool.
 * `get()` omits `Summary` because the agent already obtained it when navigating via `manifest()` or `toc()` to discover the target slug in the first place.
@@ -500,6 +532,20 @@ docpack search ./mykb "query" --limit 10 --offset 0  # YAML to stdout
 * Exit 1 — error. JSON `{ message }` to stderr. Nothing to stdout.
 * Primary consumer is AI agents, not terminal readers.
 * On clipped documents, `children` is a `Summary` (replaces the removed subtree). The agent can aggregate summaries across branches to reconstruct a transversal overview.
+
+### Skill Generation
+
+Produce a self-contained agent skill package from an existing KB.
+
+```bash
+docpack skill <kb> --use-when "<description>" --output <dir>
+```
+
+* `<kb>` — path to existing KB directory (required).
+* `--use-when` — imperative description of when to use the skill (required). Used as the `description` field in SKILL.md frontmatter.
+* `--output` — path to output skill directory (required).
+
+Produces the skill package structure: `SKILL.md`, `references/` (KB copy), `scripts/docpack.mjs` (wrapper). SKILL.md is auto-generated from manifest metadata, home TOC (depth 1), and `--use-when` text.
 
 ### MCP Mode
 

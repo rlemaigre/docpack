@@ -1,0 +1,106 @@
+---
+name: <%= it.name %>
+description: <%= it.useWhen %>
+---
+
+# <%= it.name %>
+
+<%= it.useWhen %>
+
+## Knowledge Base
+
+- **Version:** <%= it.version %>
+- **Chunks:** <%= it.chunks %>
+- **Size:** <%= it.size %><% if (it.home) { %>
+- **Home:** <%= it.home %><% } %><% if (it.description) { %>
+- **Description:** <%= it.description %><% } %><% if (it.url) { %>
+- **Source:** <%= it.url %><% } %><% if (it.structure) { %>
+
+## Structure
+
+<%= it.structure %>
+<% } %>
+## Usage
+
+The bundled wrapper script resolves the knowledge base path automatically. Run from the skill directory:
+
+```bash
+node ./scripts/docpack.mjs manifest
+node ./scripts/docpack.mjs toc "<%= it.home %>" --depth 1
+node ./scripts/docpack.mjs get "<slug>"
+node ./scripts/docpack.mjs search "<query>" --limit 5
+```
+
+## Token budget (relative)
+
+Output grows with KB size. These orderings hold across KBs:
+
+| Command | Relative cost | Use for |
+|---|---|---|
+| `manifest` | tiny | Always start here. KB stats + home slug. |
+| `toc --depth 1` | small | Scout structure. Shows children with `chunkCount` and `totalBytes` -- use those to gauge size. |
+| `toc --depth 2` | medium | Detailed overview. Safe on home, risky on large sections. Check depth 1 first. |
+| `search --limit N` | scales with N | Full chunk text per hit. Use `--limit 1-3` for budget. |
+| `get <leaf>` | small | Retrieve a single section (depth=0). Best value for content. |
+| `get <internal>` | large | Full subtree. Only when you need all children. |
+| `get <root>` | huge | Avoid. Use `toc` + targeted `get` calls instead. |
+
+**Rule:** `toc` for structure, `get` for content. Never `get` a root document. Always check `chunkCount` and `totalBytes` in `toc` output before calling `get`.
+
+## Query strategies
+
+### Discovery (broad questions)
+
+Start with `manifest`, then `toc --depth 1` on the home slug to map the structure. Drill with `toc --depth 2` on sections of interest. Use `get` on leaf slugs (depth=0) for focused content.
+
+### Search (focused questions)
+
+```bash
+node ./scripts/docpack.mjs search "term1 AND term2" --limit 3
+```
+
+Combine terms with `AND` for narrow results. Use `--limit 1-3` for token efficiency. `search` returns full chunk text per hit, so output grows quickly.
+
+**Token-efficient variant** -- save to file, extract slugs, then get what you need:
+
+```bash
+node ./scripts/docpack.mjs search "DataWindow AND filter" --limit 10 > /tmp/hits.yaml
+grep "slug:" /tmp/hits.yaml
+node ./scripts/docpack.mjs get "9-31-filter"
+```
+
+### Sequential navigation
+
+Use `prev`/`next` attributes in `get` XML output to walk through sections in reading order. These are present on section documents, not root documents.
+
+## Search operators
+
+| Operator | Example | Notes |
+|---|---|---|
+| AND | `"term1 AND term2"` | Narrows results. Use this. |
+| OR | `"term1 OR term2"` | Broadens results. More hits. |
+| Phrase | `'"exact phrase"'` | Exact word sequence. |
+| Prefix | `"DataW*"` | Partial matching. Can return many hits. |
+| Column | `"title:term"` | Search only titles or chunks. |
+
+**Avoid:** `NEAR` (unreliable), `NOT` (counterintuitive), single broad terms (too many hits).
+
+## Anti-rationalization
+
+| Don't | Do |
+|---|---|
+| `get` on a root slug | `toc --depth 1` to find the right section, then `get` leaves |
+| `NEAR` expecting proximity | `AND` with smaller result sets |
+| `toc --depth full` on large KB | Increment depth: 1, then 2, then target specific slugs |
+| Parse YAML output programmatically | Parse XML from `get` -- structured and stable |
+| Skip `manifest` and go to `search` | Always read `manifest` first to understand KB scope |
+| Search single broad terms like "component" | Combine: `component AND render`, use `--limit 3` |
+| Pipe full search output into context | Save to file, extract slugs with `grep`, then `get` |
+
+## Common pitfalls
+
+1. **Terminology mismatch** -- summaries may paraphrase source terms. Search the chunk content, not summary vocabulary.
+2. **Token budget** -- `get` on large documents returns full subtrees as XML. Use `toc` with depth limits to scout first.
+3. **Broad searches** -- single-term searches return thousands of hits. Combine with `AND` and use `--limit`.
+4. **Search output size** -- `search` returns full chunk text per hit. Output grows quickly with result count. Extract slugs instead of piping full output.
+5. **Phrase search with special characters** -- dots, underscores in phrases often fail. Use space-separated terms instead.

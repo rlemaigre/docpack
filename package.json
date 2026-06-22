@@ -1,6 +1,6 @@
 {
   "name": "@rlemaigre/docpack",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Turn a directory of documents into a portable, queryable knowledge base",
   "type": "module",
   "main": "dist/index.js",
@@ -41,6 +41,7 @@
     "@sindresorhus/slugify": "^3.0.0",
     "better-sqlite3": "^12.11.1",
     "cac": "^7.0.0",
+    "eta": "^4.6.0",
     "fast-glob": "^3.3.3",
     "xmlbuilder": "^15.1.1",
     "yaml": "^2.9.0"
