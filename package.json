@@ -1,0 +1,67 @@
+{
+  "name": "@rlemaigre/docpack",
+  "version": "0.1.0",
+  "description": "Turn a directory of documents into a portable, queryable knowledge base",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "docpack": "dist/cli/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rlemaigre/docpack.git"
+  },
+  "homepage": "https://github.com/rlemaigre/docpack#readme",
+  "bugs": {
+    "url": "https://github.com/rlemaigre/docpack/issues"
+  },
+  "keywords": [
+    "knowledge-base",
+    "document-bundle",
+    "sqlite",
+    "fts5",
+    "full-text-search",
+    "mcp",
+    "rag",
+    "retrieval",
+    "markdown",
+    "bundler"
+  ],
+  "author": "rlemaigre",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@sindresorhus/slugify": "^3.0.0",
+    "better-sqlite3": "^12.11.1",
+    "cac": "^7.0.0",
+    "fast-glob": "^3.3.3",
+    "mime-types": "^3.0.2",
+    "xmlbuilder": "^15.1.1",
+    "yaml": "^2.9.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/mime-types": "^3.0.1",
+    "@types/node": "^26.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.61.1",
+    "@typescript-eslint/parser": "^8.61.1",
+    "@vitest/ui": "^4.1.9",
+    "eslint": "^10.5.0",
+    "eslint-plugin-sonarjs": "^4.1.0",
+    "tsup": "^8.5.1",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  },
+  "scripts": {
+    "build": "tsup",
+    "prepublishOnly": "npm run build",
+    "cli": "node dist/cli/index.js"
+  }
+}

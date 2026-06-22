@@ -1,0 +1,31 @@
+# Source
+src/
+tsconfig.json
+tsup.config.ts
+
+# Development
+scratch/
+inputs/
+outputs/
+*.test.ts
+*.spec.ts
+vitest.config.*
+eslint.config.*
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Agent skills (not part of the package)
+.agents/

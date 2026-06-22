@@ -1,0 +1,54 @@
+version: 0.1.0
+totalChunks: 6525
+totalBytes: 7424909
+roots:
+  - powerbuilder-2019-connection-reference-2019
+  - powerbuilder-2019-datawindow-programmers-guide-2019
+  - powerbuilder-2019-datawindow-reference-2019
+  - powerbuilder-2019-errors-en
+  - powerbuilder-2019-objects-and-controls-2019
+  - powerbuilder-2019-powerscript-reference-2019
+  - powerbuilder-2019-users-guide-for-pb-2019
+files:
+  - slug: powerbuilder-2019-connection-reference-2019
+    summary:
+      chunkCount: 195
+      totalBytes: 419495
+      depth: 3
+      text: The document outlines database configuration parameters and preferences available in the software environment. Key parameters include DataSource, Date, and DateFormat for data handling, while AutoCommit defaults to False to ensure transaction atomicity. Connection management is controlled through parameters such as Keep Connection Open, which is restricted to development environments, and CnnPool for pooling. Security and authentication are managed via parameters like Encrypt, IntegratedSecurity, and various Sec_* settings for mutual authentication and key management. The text also lists extensive database-specific configurations including isolation levels, cursor types, and protocol settings for different database interfaces.
+  - slug: powerbuilder-2019-datawindow-programmers-guide-2019
+    summary:
+      chunkCount: 120
+      totalBytes: 159209
+      depth: 3
+      text: PowerBuilder DataWindow objects function as containers for data operations, supporting retrieval, updates, and manipulation across diverse sources including databases and web services. Developers utilize the DataWindow painter to define presentation styles and data sources, managing transactions either internally or externally for performance. Dynamic modification of appearance and behavior is achieved through the Modify method, while DataStore objects provide optimized background processing without visual rendering. Graph rendering is supported within DataWindow objects via hierarchical definition properties, though DataStore objects lack this capability. Export functionality allows users to define structural templates for HTML generation, enabling custom layouts for report elements.
+  - slug: powerbuilder-2019-datawindow-reference-2019
+    summary:
+      chunkCount: 856
+      totalBytes: 1483791
+      depth: 4
+      text: Comprehensive reference for DataWindow operators, expressions, and functions. Covers expression syntax and usage across painters, operator types and precedence rules, and script evaluation. Includes an alphabetical catalog of DataWindow expression functions (Abs through Year), DataWindow object properties with descriptions, DataWindow control methods, and DataWindow events. Also documents graph methods for chart controls within DataWindow objects.
+  - slug: powerbuilder-2019-errors-en
+    summary:
+      chunkCount: 2414
+      totalBytes: 798215
+      depth: 3
+      text: SQL Preprocessor errors address syntax violations, unsupported host variable types, and cursor management constraints in Embedded SQL code. MobiLink Server and Communication errors detail synchronization issues, connection limits, protocol mismatches, and file I/O failures affecting replication and replay utilities. MobiLink Replay Utility specific errors highlight initialization failures, missing callback functions, outdated API versions, and strict character limits for authentication credentials. Relay Server warnings range from system call failures and CPU monitoring unavailability to connection interruptions, configuration integrity issues, and backend farm metric limits. Outbound Enabler warnings indicate backend session disconnection failures caused by missing session indices and proxy restrictions on passthrough traffic.
+  - slug: powerbuilder-2019-objects-and-controls-2019
+    summary:
+      chunkCount: 474
+      totalBytes: 1019992
+      depth: 2
+      text: PowerBuilder system objects are built-in components including windows, controls, and structures that define the application's architecture and state. These objects possess configurable properties, support event-driven execution via PowerScript, and utilize inheritance hierarchies where base classes serve as internal implementation details rather than user-facing components. Developers can inspect system objects, properties, events, and functions using the PowerBuilder Browser's dedicated System tab and hierarchical context menu. The platform supports extensive customization through display formats for text, numbers, dates, and times, along with scrolling mechanics tied to internal grid divisions.
+  - slug: powerbuilder-2019-powerscript-reference-2019
+    summary:
+      chunkCount: 1257
+      totalBytes: 1959290
+      depth: 4
+      text: "Complete PowerScript language reference. Part I covers language basics: syntax, identifiers, datatypes, variables, constants, operators, structures, and objects. Part II provides a full catalog of statements (assignment, control flow, SQL), events, and functions organized alphabetically with syntax, arguments, return values, and usage notes. Covers the full PowerScript API including string, math, date, file, database, and UI functions."
+  - slug: powerbuilder-2019-users-guide-for-pb-2019
+    summary:
+      chunkCount: 1209
+      totalBytes: 1584917
+      depth: 4
+      text: "End-user guide to the PowerBuilder IDE and development workflow. Part I covers the PowerBuilder environment: workspace management, IDE customization, and source control (SVN/Git). Part II covers targets, libraries, and object management. Part III covers coding fundamentals: Script view, functions, events, and structures. Part IV covers windows, controls, menus, and inheritance. Part V covers database operations. Part VI covers DataWindow development in depth. Part VII covers application deployment and runtime."
