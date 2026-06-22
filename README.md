@@ -86,7 +86,7 @@ Conversion from other formats (PDF, DOCX, etc.) is the caller's responsibility â
 | `manifest <kb>`                                              | YAML    | KB metadata (version, home, stats)                   |
 | `toc <kb> <slug> --depth N`                                  | YAML    | Hierarchy with clipped subtree summaries             |
 | `get <kb> <slug>`                                            | XML     | Document content + full subtree                      |
-| `search <kb> "query" --limit N --offset O`                   | YAML    | FTS5 search with BM25 ranking                        |
+| `search <kb> "query" --limit N --offset O`                   | YAML    | FTS5 search with snippet excerpts                    |
 | `summarize <kb> --summaries <file>`                          | n/a     | Import summaries from JSONL                          |
 | `summarize <kb> --mode llm --model <name> --endpoint <url>`  | n/a     | Generate summaries via LLM fold                      |
 | `skill <kb> --use-when "<text>" --output <dir>`              | files   | Package KB as a self-contained agent skill           |
@@ -200,7 +200,7 @@ FTS5 full-text search over titles and chunk content. Query language supports:
 - Prefix: `GetSeries*`
 - Column-specific: `title:DataWindow`
 
-Results ranked by BM25 score. `total` gives full result set size.
+Results ordered by BM25 score. Each hit carries a `snippet` excerpt (~30 tokens around matched terms with `<b>`/`</b>` markers). `total` gives full result set size.
 
 Embeddings and reranking : TBD (requires AI).
 
