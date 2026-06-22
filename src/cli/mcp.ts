@@ -71,7 +71,7 @@ function registerTocTool(
     {
       description: "Return the table of contents for a slug.",
       inputSchema: {
-        slug: z.string().describe("Node slug"),
+        slug: z.string().describe("Document slug"),
         depth: z.string().optional().describe("Depth mode: number or 'full'"),
       },
     },
@@ -95,7 +95,7 @@ function registerGetTool(
     {
       description: "Get a document and its subtree as XML.",
       inputSchema: {
-        slug: z.string().describe("Node slug"),
+        slug: z.string().describe("Document slug"),
       },
     },
     (args: { slug: string }) => {

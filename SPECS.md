@@ -23,23 +23,23 @@ TypeScript.
 
 ## Bundler
 
-Recursively walks a directory of Markdown files, flattening the filesystem into a uniform tree of knowledge where all ingested files are root nodes and directory structure is discarded. The hierarchy comes from Markdown headings within each file, and from links between files.
+Recursively walks a directory of Markdown files, flattening the filesystem into a uniform tree of knowledge where all ingested files are root documents and directory structure is discarded. The hierarchy comes from Markdown headings within each file, and from links between files.
 
 1. Collects all files in the input directory (flat, no directory nodes).
 2. For each file:
   1. Reads the file as Markdown.
   2. Rewrites relative `.md` links to `docpack://slug` references.
-  3. Parses headings to extract the internal hierarchy and extends the tree with one `Node` for each section.
+  3. Parses headings to extract the internal hierarchy and extends the tree with one `Document` for each section.
 
 The bundler runs entirely within a single synchronous SQLite transaction — no async involved. Input files are assumed to be Markdown; conversion from other formats is the caller's responsibility.
 
 ### Home File
 
-The `--home` flag is mandatory. It points to a Markdown file that serves as the primary entry point into the knowledge base. This file is bundled like any other — it becomes a root node with its own section tree. The manifest records its slug.
+The `--home` flag is mandatory. It points to a Markdown file that serves as the primary entry point into the knowledge base. This file is bundled like any other — it becomes a root document with its own section tree. The manifest records its slug.
 
 **What it is:** a Markdown file with headings, subsections, and `docpack://slug` links that organize the KB's content into a meaningful navigation structure. It is a semantic table of contents — unlike directories, it reflects how the documents relate to each other, not how they were stored on disk.
 
-**Why it is necessary:** without directory nodes, all files are flat root nodes. With many files (hundreds, thousands), agents need an entry point to orient themselves before falling back to `search()`. The home file provides classification and reading order.
+**Why it is necessary:** without directory nodes, all files are flat root documents. With many files (hundreds, thousands), agents need an entry point to orient themselves before falling back to `search()`. The home file provides classification and reading order.
 
 **When to create it:** before bundling, as a preprocessing step — just like converting files to Markdown. The user (or an agent) writes the file and places it alongside the other input files.
 
@@ -60,7 +60,7 @@ The `--home` flag is mandatory. It points to a Markdown file that serves as the 
 * [Endpoints](docpack://api-endpoints)
 ```
 
-When bundled, this file becomes the `home` node. Agents call `toc(home)` to navigate the KB's structure, following `docpack://slug` links to drill into content.
+When bundled, this file becomes the `home` document. Agents call `toc(home)` to navigate the KB's structure, following `docpack://slug` links to drill into content.
 
 ## Knowledge Base
 
@@ -124,37 +124,39 @@ Skill generation is an optional post-processing step, separate from bundling. Th
 
 # Data Model
 
-## Node
+## Document
 
-One shape for all nodes — files and sections:
+One shape for all documents — files and sections:
 
 ```
-Node = { type : "file" | "section", title : string, slug : string, index : number, chunk : string?, summary : string?, children: Node[] }
+Document = { type : "file" | "section", title : string, slug : string, index : number, chunk : string?, summary : string?, children: Document[] }
 ```
 
-* `type` — distinguishes files (ingested source documents) from sections (Markdown headings). All files are root nodes (`parent_slug IS NULL`). There are no directory nodes.
+* `type` — distinguishes files (ingested source documents) from sections (Markdown headings). All files are root documents (`parent_slug IS NULL`). There are no directory nodes.
 * `title` — human-readable label.
 * `slug` — globally unique identifier.
 * `index` — position among siblings. Assigned by the bundler (filesystem sort order or heading order).
-* `chunk` — *self content* of the node only, does NOT aggregate the whole subtree. Optional (e.g. file nodes with no content before the first heading).
+* `chunk` — *self content* of the document only, does NOT aggregate the whole subtree. Optional (e.g. file documents with no content before the first heading).
 * `summary` — AI-generated summary of the entire subtree (chunk + all descendants). Optional. Produced by post-processing.
 * `children` — always present. Empty `[]` = leaf.
+
+The `Document` shape is uniform across all levels — a file, a section, and a leaf section all share the same structure.
 
 ## Hierarchy
 
 The hierarchy is flat at the top, deep within files:
 
-1. **Root level** — all ingested files are root nodes (`parent_slug IS NULL`). Directory structure is discarded.
+1. **Root level** — all ingested files are root documents (`parent_slug IS NULL`). Directory structure is discarded.
 2. **File level** — Markdown headings form the internal hierarchy of each file (sections → subsections → leaves). Built by the bundler from ATX headings.
 
-Cross-file navigation is achieved through `docpack://slug` links rewritten by the bundler, and through the home file's semantic table of contents. Files and sections can be internal or leaf nodes.
+Cross-file navigation is achieved through `docpack://slug` links rewritten by the bundler, and through the home file's semantic table of contents. Files and sections can be internal or leaf documents.
 
 ## Slug Generation
 
 * Uses `@sindresorhus/slugify` for heading text → slug.
-* File nodes: slug from basename (without extension).
-* Section nodes: slug from heading text.
-* Empty slug (e.g. CJK, punctuation-only): fallback to `_N` where N is the node's index.
+* File documents: slug from basename (without extension).
+* Section documents: slug from heading text.
+* Empty slug (e.g. CJK, punctuation-only): fallback to `_N` where N is the document's index.
 * Cross-file collisions: with no directory nodes, colliding basenames are disambiguated using the original relative path components. E.g. two `README.md` files at `guide/README.md` and `api/README.md` get slugs `guide-readme` and `api-readme`. If that still collides, fall back to `_N`.
 * Section collisions: prefix the conflicting slug with its parent slug until globally unique.
 
@@ -162,18 +164,18 @@ Cross-file navigation is achieved through `docpack://slug` links rewritten by th
 
 ## Input
 
-The bundler recursively walks the input directory and reads every file as **Markdown text (UTF-8)**. No file type filtering or conversion is performed — all files are treated as Markdown. Directory structure is not preserved — all files become root nodes.
+The bundler recursively walks the input directory and reads every file as **Markdown text (UTF-8)**. No file type filtering or conversion is performed — all files are treated as Markdown. Directory structure is not preserved — all files become root documents.
 
-* Files that are not valid Markdown will still be ingested. The parser scans for ATX headings; files with no headings become single-chunk nodes.
-* Non-text files (binary, images, etc.) will fail to parse gracefully — they become empty or garbled nodes. The caller should exclude such files before bundling.
+* Files that are not valid Markdown will still be ingested. The parser scans for ATX headings; files with no headings become single-chunk documents.
+* Non-text files (binary, images, etc.) will fail to parse gracefully — they become empty or garbled documents. The caller should exclude such files before bundling.
 * Conversion from other formats (PDF, DOCX, etc.) is the caller's responsibility.
 
 ## Markdown Parsing
 
 * **Headings** — ATX only (`#` through `######`). Regex: `^(#{1,6})\s+(.+)$`.
-* **Content before first heading** — becomes self content of the file node itself.
-* **Zero headings** — single chunk: file node with content, no children.
-* **Content between headings** — becomes chunk content for that heading's node. For nested headings (e.g. `## A` followed by `### B`), content between `## A` and `### B` belongs to the `A` node.
+* **Content before first heading** — becomes self content of the file document itself.
+* **Zero headings** — single chunk: file document with content, no children.
+* **Content between headings** — becomes chunk content for that heading's document. For nested headings (e.g. `## A` followed by `### B`), content between `## A` and `### B` belongs to the `A` document.
 
 ## Link Rewriting
 
@@ -206,15 +208,15 @@ Individual chunk content is Markdown. Stored as TEXT in the knowledge base (`chu
 </document>
 ```
 
-* `<chunk>` — optional. Markdown self-content. Absent for nodes without content.
-* `<children>` — zero or more child `<document>` elements. Empty for leaf nodes. Children have semantic ordering (heading order within a file).
-* `parent` — optional. Slug of the parent document. Absent for root nodes.
+* `<chunk>` — optional. Markdown self-content. Absent for documents without content.
+* `<children>` — zero or more child `<document>` elements. Empty for leaf documents. Children have semantic ordering (heading order within a file).
+* `parent` — optional. Slug of the parent document. Absent for root documents.
 * `prev` / `next` — optional. Slugs of sibling documents in reading order. Present only for sections (ordered children of a file).
-* `level` — hops from KB root to this node (root = 0). Preserved in subtrees.
-* `depth` — hops from this node to its deepest descendant (leaf = 0).
+* `level` — hops from KB root to this document (root = 0). Preserved in subtrees.
+* `depth` — hops from this document to its deepest descendant (leaf = 0).
 * Attributes (`slug`, `title`, `level`, `depth`, `parent`, `prev`, `next`) are machine-parseable and can be queried by scripts operating on the XML output.
 * Unlimited nesting depth — no Markdown h6 limitation.
-* Symmetric structure all the way down — no special case for leaf nodes.
+* Symmetric structure all the way down — no special case for leaf documents.
 
 ### Examples
 
@@ -229,7 +231,7 @@ OAuth details...
 </document>
 ```
 
-Internal node (`get("readme")`):
+Internal document (`get("readme")`):
 ```xml
 <document slug="readme" title="README" level="0" depth="2">
   <chunk>
@@ -344,14 +346,14 @@ summarize(options);
 
 | Variable | Description |
 |---|---|
-| `{title}` | Node's own title. |
-| `{slug}` | Node's own slug. |
-| `{chunk}` | Node's own content (markdown). |
+| `{title}` | Document's own title. |
+| `{slug}` | Document's own slug. |
+| `{chunk}` | Document's own content (markdown). |
 | `{children_titles}` | Ordered list of children titles, one per line. |
 | `{children_summaries}` | Ordered list of `title: summary` pairs, one per line. |
 | `{children_count}` | Number of children. |
 
-**Pass-through:** if `node.children.length === 0` AND (`node.chunk` is absent OR `node.chunk.length < minContentLength`), skip the LLM call. Use the chunk as-is if present, or skip for empty leaves.
+**Pass-through:** if `doc.children.length === 0` AND (`doc.chunk` is absent OR `doc.chunk.length < minContentLength`), skip the LLM call. Use the chunk as-is if present, or skip for empty leaves.
 
 **Endpoint:** any OpenAI-compatible `/v1/chat/completions` endpoint (vLLM, Ollama, LM Studio, cloud OpenAI).
 
@@ -398,7 +400,7 @@ docpack summarize ./mykb \
 * `--endpoint` — OpenAI-compatible endpoint URL (LLM mode, required).
 * `--prompt` — path to prompt template file (LLM mode, required).
 * `--concurrency` — max parallel LLM requests per level (LLM mode, default: 8).
-* `--min-content-length` — skip LLM call for leaf nodes shorter than this (LLM mode).
+* `--min-content-length` — skip LLM call for leaf documents shorter than this (LLM mode).
 * `--api-key` — API key for cloud endpoints (LLM mode, optional).
 
 Upserts summaries into the KB.
@@ -417,7 +419,7 @@ import { query } from "@rlemaigre/docpack";
 interface Summary {
   chunkCount: number;     // descendants that have content
   totalBytes: number;     // sum of chunk bytes in subtree
-  depth: number;          // max depth below this node
+  depth: number;          // max depth below this document
   text?: string;          // AI-generated, present when summaries were generated
 }
 
@@ -430,8 +432,8 @@ interface TOC {
 interface Document {
   slug: string;
   title: string;
-  level: number;      // hops from root to this node
-  depth: number;      // hops from this node to deepest descendant
+  level: number;      // hops from root to this document
+  depth: number;      // hops from this document to deepest descendant
   parent?: string;    // slug of parent, absent for roots
   prev?: string;      // slug of previous sibling, sections only
   next?: string;      // slug of next sibling, sections only
@@ -452,7 +454,7 @@ interface Manifest {
 interface SearchHit {
   slug: string;
   title: string;
-  text: string;         // matched node's content
+  text: string;         // matched document's content
   rank: number;         // BM25 score
 }
 
@@ -477,10 +479,10 @@ kb.search(params);    // SearchResults
 
 * `manifest()` — reads `docpack.yaml`. Returns version, aggregate statistics, and metadata fields (`home`, `description`, `url`, `exportedAt`). Compact — no file enumeration.
 * `toc(slug, depth)` — returns the hierarchy rooted at `slug`. `depth` is a number (levels to unfold, `0` = root only) or `'full'` (full tree, no clipping). Clipped subtrees carry `Summary` for semantic discovery.
-* `get(slug)` — returns the node and its subtree. Returns `null` if the slug does not exist.
+* `get(slug)` — returns the document and its subtree. Returns `null` if the slug does not exist.
 * `search(params)` — full-text search over node titles and chunk content using SQLite FTS5. `query` accepts the full FTS5 query language (plain words, phrases, AND/OR/NOT, prefix, NEAR, column-specific). Results ranked by BM25 score. Each hit carries the matched `text`. `limit` and `offset` are required. `total` gives the full result set size.
-* `parent`, `prev`, `next` on any `Document` — navigation slugs derived from structure. `parent` is present on all non-root nodes. `prev`/`next` present only on sections (ordered children of a file). Absent when not applicable.
-* `Summary` merges structural stats and semantic text. On clipped TOC nodes, aggregating summaries across branches lets the agent reconstruct a transversal overview of the entire tree — making TOC the primary semantic discovery tool.
+* `parent`, `prev`, `next` on any `Document` — navigation slugs derived from structure. `parent` is present on all non-root documents. `prev`/`next` present only on sections (ordered children of a file). Absent when not applicable.
+* `Summary` merges structural stats and semantic text. On clipped TOC documents, aggregating summaries across branches lets the agent reconstruct a transversal overview of the entire tree — making TOC the primary semantic discovery tool.
 * `get()` omits `Summary` because the agent already obtained it when navigating via `manifest()` or `toc()` to discover the target slug in the first place.
 
 ## CLI
@@ -497,7 +499,7 @@ docpack search ./mykb "query" --limit 10 --offset 0  # YAML to stdout
 * Exit 0 — success. Result to stdout (YAML for `manifest`/`toc`, XML for `get`).
 * Exit 1 — error. JSON `{ message }` to stderr. Nothing to stdout.
 * Primary consumer is AI agents, not terminal readers.
-* On clipped nodes, `children` is a `Summary` (replaces the removed subtree). The agent can aggregate summaries across branches to reconstruct a transversal overview.
+* On clipped documents, `children` is a `Summary` (replaces the removed subtree). The agent can aggregate summaries across branches to reconstruct a transversal overview.
 
 ### MCP Mode
 
@@ -510,7 +512,7 @@ docpack serve ./mykb --mcp    # MCP server over stdio
 Exposed tools:
 * `manifest` — returns the KB manifest.
 * `toc(slug, depth)` — returns the table of contents subtree.
-* `get(slug)` — returns the node content as XML.
+* `get(slug)` — returns the document content as XML.
 * `search(query, limit, offset)` — full-text search, returns ranked hits with summaries.
 
 # Storage — SQLite
