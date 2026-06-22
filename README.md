@@ -3,7 +3,7 @@
 Bundle a directory of Markdown files into a portable, queryable knowledge base.
 
 ```bash
-docpack bundle --input ./docs --output ./mykb
+docpack bundle --input ./docs --output ./mykb --home ./docs/toc.md
 docpack toc ./mykb "getting-started" --depth 2
 docpack search ./mykb "authentication AND OAuth" --limit 5
 ```
@@ -14,11 +14,11 @@ Single binary. CLI, TypeScript library, and MCP server.
 
 ```bash
 # Bundle a directory of Markdown files
-docpack bundle --input ./docs --output ./mykb
+docpack bundle --input ./docs --output ./mykb --home ./docs/toc.md
 
 # Explore the knowledge base
 docpack manifest ./mykb
-docpack toc ./mykb "my-root-slug" --depth 2
+docpack toc ./mykb "toc" --depth 2
 docpack search ./mykb "keyword" --limit 10
 
 # Start an MCP server
@@ -79,7 +79,7 @@ Conversion from other formats (PDF, DOCX, etc.) is the caller's responsibility �
 
 | Command                                    | Output | Use                                      |
 | ------------------------------------------ | ------ | ---------------------------------------- |
-| `manifest <kb>`                            | YAML   | KB overview, root slugs, file stats      |
+| `manifest <kb>`                            | YAML   | KB metadata (version, home, stats)       |
 | `toc <kb> <slug> --depth N`                | YAML   | Hierarchy with clipped subtree summaries |
 | `get <kb> <slug>`                          | XML    | Node content + full subtree              |
 | `search <kb> "query" --limit N --offset O` | YAML   | FTS5 search with BM25 ranking            |
@@ -103,8 +103,8 @@ The bundler walks the filesystem, reads each file as Markdown, parses headings i
 
 ```mermaid
 graph TD
-    D[directory] --> F1[file]
-    D --> F2[file]
+    F1[file]
+    F2[file]
     F1 --> S1[section]
     F1 --> S2[section]
     S1 --> L1[leaf]
@@ -112,26 +112,29 @@ graph TD
     S2 --> L3[leaf]
 ```
 
-Three input types, abstracted into a single `Node` primitive:
+All ingested files are root nodes — directory structure is discarded. Two node types:
 
-- **directory** -- filesystem folder, no self content
-- **file** -- ingested Markdown document, may contain sections
-- **section** -- Markdown heading, may contain subsections
+- **file** -- ingested Markdown document, root node, may contain sections
+- **section** -- Markdown heading, child of a file, may contain subsections
 
-Every `Node` has a `slug` (globally unique), `title`, `chunk` (self content), and `children`.
+Every `Node` has a `slug` (globally unique), `title`, `chunk` (self content), and `children`. Cross-file navigation uses `docpack://slug` links rewritten by the bundler.
 
 ## CLI reference
 
 ### bundle
 
 ```bash
-docpack bundle --input <path> --output <path>
+docpack bundle --input <path> --output <path> --home <path>
 ```
 
-| Option       | Required | Description                                              |
-| ------------ | -------- | -------------------------------------------------------- |
-| `--input`    | yes      | File or directory of Markdown files to bundle            |
-| `--output`   | yes      | Output directory (creates `docpack.db` + `docpack.yaml`) |
+| Option          | Required | Description                                              |
+| --------------- | -------- | -------------------------------------------------------- |
+| `--input`       | yes      | Directory of Markdown files to bundle                    |
+| `--output`      | yes      | Output directory (creates `docpack.db` + `docpack.yaml`) |
+| `--home`        | yes      | Path to the primary entry file (Markdown TOC)            |
+| `--description` | no       | Human-readable description of the KB                     |
+| `--url`         | no       | Source URL (wiki, website, etc.)                         |
+| `--exported-at` | no       | Date of source data export (ISO 8601)                    |
 
 Progress to stderr. Stats as JSON to stdout.
 
@@ -141,7 +144,7 @@ Progress to stderr. Stats as JSON to stdout.
 docpack manifest <kb>
 ```
 
-Returns YAML with version, statistics, root slugs, and file-level summaries.
+Returns YAML with version, aggregate statistics, and metadata (`home`, `description`, `url`, `exportedAt`). No file enumeration.
 
 ### toc
 
@@ -152,10 +155,9 @@ docpack toc <kb> <slug> [--depth <mode>]
 | Depth mode   | Behavior                             |
 | ------------ | ------------------------------------ |
 | `N` (number) | Unfold N levels, clip with `Summary` |
-| `files`      | Expand to file boundaries            |
 | `full`       | Complete tree, no clipping           |
 
-For clipped subtrees, children `Nodes` are replaced with a `Summary` object : `chunkCount`, `totalBytes`, `depth`, and optional summary `text`.
+For clipped subtrees, children `Nodes` are replaced with a `Summary` object: `chunkCount`, `totalBytes`, `depth`, and optional summary `text`.
 
 ### get
 
@@ -225,14 +227,14 @@ Docpack traverses the node tree bottom-up, level by level. At each node it fills
 |---|---|
 | `{title}` | Node's own title |
 | `{slug}` | Node's own slug |
-| `{chunk}` | Node's own content (Markdown). Empty for directories. |
+| `{chunk}` | Node's own content (Markdown). |
 | `{children_titles}` | Ordered list of children titles, one per line |
 | `{children_summaries}` | Ordered list of `title: summary` pairs, one per line |
 | `{children_count}` | Number of children |
 
 **Pass-through optimization (`--min-content-length`):**
 
-If a leaf node has no chunk, or its chunk is shorter than `--min-content-length`, the LLM call is skipped. The chunk is used as-is if present, or the node is skipped for directories. This avoids wasting LLM calls on trivial leaves and reduces hallucination risk on tiny inputs.
+If a leaf node has no chunk, or its chunk is shorter than `--min-content-length`, the LLM call is skipped. The chunk is used as-is if present, or the node is skipped. This avoids wasting LLM calls on trivial leaves and reduces hallucination risk on tiny inputs.
 
 **Options:**
 
@@ -268,6 +270,8 @@ import { bundle } from "@rlemaigre/docpack";
 const stats = bundle({
   input: "./docs",
   output: "./mykb",
+  home: "./docs/toc.md",
+  description: "My project documentation",
   onProgress: (path, done, total) => console.log(`${done}/${total}`),
   onError: (path, err) => console.error(err),
 });
@@ -283,13 +287,12 @@ import { query } from "@rlemaigre/docpack";
 
 const kb = query("./mykb");
 
-// Discover structure
+// Discover entry point
 const manifest = kb.manifest();
-console.log(manifest.roots);
-// ["getting-started", "api-reference"]
+console.log(manifest.home); // "toc"
 
 // Navigate with clipped summaries
-const toc = kb.toc("api-reference", 2);
+const toc = kb.toc(manifest.home!, 2);
 
 // Get full subtree
 const doc = kb.get("api-auth");
@@ -339,7 +342,7 @@ Both modes use upsert semantics — existing summaries for untouched slugs are p
 
 ```
 Node = {
-  type: "directory" | "file" | "section",
+  type: "file" | "section",
   title: string,
   slug: string,
   index: number,
