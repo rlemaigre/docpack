@@ -27,14 +27,17 @@ describe("query", () => {
 
   function setupKB() {
     fs.mkdirSync(path.join(inputDir, "docs"), { recursive: true });
-    fs.writeFileSync(path.join(inputDir, "readme.md"), "# README\n\nIntro text");
+    fs.writeFileSync(
+      path.join(inputDir, "readme.md"),
+      ["# README", "", "Intro text", "", "## Getting Started", "", "Start here", "", "## API", "", "API overview"].join("\n"),
+    );
     fs.writeFileSync(
       path.join(inputDir, "docs", "guide.md"),
       ["# Guide", "", "Guide content", "", "## Setup", "", "Setup steps", "", "### Config", "", "Config details"].join("\n"),
     );
     fs.writeFileSync(path.join(inputDir, "docs", "api.md"), "# API\n\nAPI docs");
 
-    bundle({ input: inputDir, output: outputDir, converter: mdConverter });
+    bundle({ input: inputDir, output: outputDir, home: path.join(inputDir, "readme.md"), converter: mdConverter });
   }
 
   describe("manifest()", () => {
@@ -47,18 +50,10 @@ describe("query", () => {
         expect(manifest.version).toBeDefined();
         expect(manifest.totalChunks).toBeGreaterThan(0);
         expect(manifest.totalBytes).toBeGreaterThan(0);
-        expect(Array.isArray(manifest.roots)).toBe(true);
-        expect(manifest.roots.length).toBeGreaterThan(0);
-        expect(Array.isArray(manifest.files)).toBe(true);
-        expect(manifest.files.length).toBeGreaterThan(0);
-
-        // Each file entry has summary
-        for (const file of manifest.files) {
-          expect(file.slug).toBeDefined();
-          expect(file.summary.chunkCount).toBeGreaterThanOrEqual(1);
-          expect(file.summary.totalBytes).toBeGreaterThan(0);
-          expect(file.summary.depth).toBeGreaterThanOrEqual(0);
-        }
+        expect(manifest.home).toBeDefined();
+        expect(manifest.exportedAt).toBeDefined();
+        expect(manifest.description).toBeNull();
+        expect(manifest.url).toBeNull();
       } finally {
         kb.close();
       }
@@ -83,10 +78,9 @@ describe("query", () => {
       const kb = query(outputDir);
       try {
         const manifest = kb.manifest();
-        const rootSlug = manifest.roots[0];
-        const toc = kb.toc(rootSlug, 0);
+        const toc = kb.toc(manifest.home!, 0);
 
-        expect(toc.slug).toBe(rootSlug);
+        expect(toc.slug).toBe(manifest.home);
         // At depth 0, children should be a Summary (clipped)
         expect(Array.isArray(toc.children)).toBe(false);
         if (!Array.isArray(toc.children)) {
@@ -102,10 +96,9 @@ describe("query", () => {
       const kb = query(outputDir);
       try {
         const manifest = kb.manifest();
-        const rootSlug = manifest.roots[0];
-        const toc = kb.toc(rootSlug, 1);
+        const toc = kb.toc(manifest.home!, 1);
 
-        expect(toc.slug).toBe(rootSlug);
+        expect(toc.slug).toBe(manifest.home);
         expect(Array.isArray(toc.children)).toBe(true);
         expect(toc.children.length).toBeGreaterThan(0);
       } finally {
@@ -118,35 +111,19 @@ describe("query", () => {
       const kb = query(outputDir);
       try {
         const manifest = kb.manifest();
-        const rootSlug = manifest.roots[0];
-        const toc = kb.toc(rootSlug, "full");
+        const toc = kb.toc(manifest.home!, "full");
 
-        expect(toc.slug).toBe(rootSlug);
+        expect(toc.slug).toBe(manifest.home);
         expect(Array.isArray(toc.children)).toBe(true);
 
         // Walk the full tree
-        function countNodes(toc: typeof kb.toc): number {
-          if (!Array.isArray(toc.children)) return 1;
-          return 1 + toc.children.reduce((sum, c) => sum + countNodes(c), 0);
+        function countNodes(node: ReturnType<typeof kb.toc>): number {
+          if (!Array.isArray(node.children)) return 1;
+          return 1 + node.children.reduce((sum, c) => sum + countNodes(c), 0);
         }
 
         const total = countNodes(toc);
-        expect(total).toBeGreaterThan(3);
-      } finally {
-        kb.close();
-      }
-    });
-
-    it("returns TOC with depth 'files'", () => {
-      setupKB();
-      const kb = query(outputDir);
-      try {
-        const manifest = kb.manifest();
-        const rootSlug = manifest.roots[0];
-        const toc = kb.toc(rootSlug, "files");
-
-        // With 'files' mode, directories and sections expand but file nodes are clipped with Summary
-        expect(toc.slug).toBe(rootSlug);
+        expect(total).toBeGreaterThan(2);
       } finally {
         kb.close();
       }
@@ -200,11 +177,10 @@ describe("query", () => {
       const kb = query(outputDir);
       try {
         const manifest = kb.manifest();
-        const rootSlug = manifest.roots[0];
-        const doc = kb.get(rootSlug);
+        const doc = kb.get(manifest.home!);
 
         expect(doc).not.toBeNull();
-        expect(doc!.slug).toBe(rootSlug);
+        expect(doc!.slug).toBe(manifest.home);
         expect(doc!.title).toBeDefined();
         expect(doc!.level).toBeGreaterThanOrEqual(0);
         expect(doc!.depth).toBeGreaterThanOrEqual(0);
@@ -238,14 +214,18 @@ describe("query", () => {
       }
     });
 
-    it("includes parent navigation for non-root nodes", () => {
+    it("all files are root nodes (no parent)", () => {
       setupKB();
       const kb = query(outputDir);
       try {
+        // All ingested files are root nodes — no directory parents
+        const readmeDoc = kb.get("readme");
+        expect(readmeDoc).not.toBeNull();
+        expect(readmeDoc!.parent).toBeUndefined();
+
         const guideDoc = kb.get("guide");
         expect(guideDoc).not.toBeNull();
-        // Guide is under docs directory, so it should have a parent
-        expect(guideDoc!.parent).toBeDefined();
+        expect(guideDoc!.parent).toBeUndefined();
       } finally {
         kb.close();
       }

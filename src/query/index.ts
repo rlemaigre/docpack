@@ -16,16 +16,10 @@ export interface Manifest {
   version: string;
   totalChunks: number;
   totalBytes: number;
-  roots: string[];
-  files: Array<{
-    slug: string;
-    summary: {
-      chunkCount: number;
-      totalBytes: number;
-      depth: number;
-      text?: string;
-    };
-  }>;
+  home: string | null;
+  description: string | null;
+  url: string | null;
+  exportedAt: string;
 }
 
 /**
@@ -36,7 +30,7 @@ export interface Manifest {
  */
 export interface KBInstance {
   manifest(): Manifest;
-  toc(slug: string, depth: number | "files" | "full"): TOC;
+  toc(slug: string, depth: number | "full"): TOC;
   get(slug: string): Document | null;
   search(params: SearchParams): SearchResults;
   close(): void;
@@ -83,7 +77,7 @@ function createKBInstance(
       return parsed;
     },
 
-    toc(slug: string, depth: number | "files" | "full"): TOC {
+    toc(slug: string, depth: number | "full"): TOC {
       const result = tocFn(db, slug, depth);
       if (!result) {
         throw new Error(`Slug not found: ${slug}`);

@@ -33,7 +33,7 @@ describe("cli format integration", () => {
       path.join(inputDir, "docs", "guide.md"),
       ["# Guide", "", "Guide content", "", "## Setup", "", "Setup steps"].join("\n"),
     );
-    bundle({ input: inputDir, output: outputDir, converter: mdConverter });
+    bundle({ input: inputDir, output: outputDir, home: path.join(inputDir, "readme.md"), converter: mdConverter });
   }
 
   it("formatXml produces valid XML for get() output", () => {
@@ -79,8 +79,8 @@ describe("cli format integration", () => {
 
       expect(yaml).toContain("version:");
       expect(yaml).toContain("totalChunks:");
-      expect(yaml).toContain("roots:");
-      expect(yaml).toContain("files:");
+      expect(yaml).toContain("home:");
+      expect(yaml).toContain("exportedAt:");
     } finally {
       kb.close();
     }
@@ -91,7 +91,7 @@ describe("cli format integration", () => {
     const kb = query(outputDir);
     try {
       const manifest = kb.manifest();
-      const toc = kb.toc(manifest.roots[0], 1);
+      const toc = kb.toc(manifest.home!, 1);
       const yaml = formatYaml(toc);
 
       expect(yaml).toContain("slug:");

@@ -22,12 +22,28 @@ cli
   )
   .option("--input <path>", "Path to input file or directory")
   .option("--output <path>", "Path to output directory")
+  .option("--description <text>", "Human-readable description of the knowledge base")
+  .option("--url <url>", "Source URL (wiki, website, etc.)")
+  .option("--exported-at <date>", "Date of source data export (ISO 8601)")
+  .option("--home <path>", "Path to the primary entry file")
   .action((options) => {
     validateRequired(options, ["input", "output"]);
+
+    if (!options.home) {
+      exitError(
+        `Missing required option: --home\n` +
+          `  Create a Markdown TOC file with sections and docpack://slug links,\n` +
+          `  then point --home to it (e.g. --home ./toc.md).`,
+      );
+    }
 
     const stats = bundle({
       input: options.input,
       output: options.output,
+      description: options.description,
+      url: options.url,
+      exportedAt: options.exportedAt,
+      home: options.home,
       onProgress: (file, processed, total) => {
         process.stderr.write(`  ${processed}/${total} ${file}\n`);
       },
@@ -65,7 +81,7 @@ cli
     "toc <kb> <slug>",
     "Print the table of contents for a slug",
   )
-  .option("--depth <mode>", "Depth mode: number, 'files', or 'full'")
+  .option("--depth <mode>", "Depth mode: number or 'full'")
   .action((kb, slug, options) => {
     const depth = parseDepth(options.depth ?? "full") ?? "full";
 

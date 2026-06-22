@@ -3,92 +3,62 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import YAML from "yaml";
 
-/** Subtree summary for a single file node in the manifest. */
-export interface FileSummary {
-  chunkCount: number;
-  totalBytes: number;
-  depth: number;
-  text?: string;
-}
-
 /**
  * Manifest data written to docpack.yaml.
  *
- * Contains version, aggregate statistics, root slugs, and a flat list
- * of all ingested file slugs with subtree summaries.
+ * Metadata only — no file enumeration. Describes the KB's provenance
+ * and scope. Agents discover content via `home` → follow links → `search()`.
  */
 export interface Manifest {
   version: string;
   totalChunks: number;
   totalBytes: number;
-  roots: string[];
-  files: Array<{
-    slug: string;
-    summary: FileSummary;
-  }>;
+  home: string | null;
+  description: string | null;
+  url: string | null;
+  exportedAt: string;
+}
+
+/** Options for building the manifest. */
+export interface ManifestOptions {
+  /** Slug of the primary entry page. */
+  home?: string;
+  /** Human-readable description of what the KB covers. */
+  description?: string;
+  /** Source URL (wiki, website, etc.). */
+  url?: string;
+  /** Date of source data export/scraping (ISO 8601). Auto-set to bundle time if omitted. */
+  exportedAt?: string;
 }
 
 /**
- * Build a Manifest from the database.
+ * Build a metadata-only Manifest.
  *
- * Queries root slugs, file nodes, and per-file subtree statistics
- * via the closure table.
- *
- * @param db - Open database connection.
+ * @param db - Open database connection (unused, kept for API compatibility).
  * @param version - Package version string (from package.json).
  * @param totalChunks - Total chunk count from insertion stats.
  * @param totalBytes - Total byte count from insertion stats.
- * @returns Complete manifest object.
+ * @param options - Optional metadata fields.
+ * @returns Manifest object.
  */
 export function buildManifest(
-  db: Database,
+  _db: Database,
   version: string,
   totalChunks: number,
   totalBytes: number,
+  options: ManifestOptions = {},
 ): Manifest {
-  const roots = fetchRootSlugs(db);
-  const files = fetchFileSummaries(db);
+  const exportedAt = options.exportedAt ?? new Date().toISOString();
 
-  return { version, totalChunks, totalBytes, roots, files };
-}
-
-/** Fetch root node slugs (nodes with no parent), ordered by index. */
-function fetchRootSlugs(db: Database): string[] {
-  const rows = db.prepare(
-    "SELECT slug FROM nodes WHERE parent_slug IS NULL ORDER BY idx",
-  ).all() as Array<{ slug: string }>;
-
-  return rows.map((r) => r.slug);
-}
-
-/** Fetch all file nodes with their subtree summaries in a single grouped query. */
-function fetchFileSummaries(db: Database): Manifest["files"] {
-  const rows = db.prepare(`
-    SELECT f.slug,
-      COUNT(DISTINCT n.slug) AS chunkCount,
-      COALESCE(SUM(CASE WHEN n.chunk IS NOT NULL THEN length(n.chunk) ELSE 0 END), 0) AS totalBytes,
-      MAX(c.depth) AS depth
-    FROM nodes f
-    LEFT JOIN closure c ON c.ancestor = f.slug
-    LEFT JOIN nodes n ON n.slug = c.descendant AND n.chunk IS NOT NULL
-    WHERE f.type = 'file'
-    GROUP BY f.slug
-    ORDER BY f.idx
-  `).all() as Array<{
-    slug: string;
-    chunkCount: number;
-    totalBytes: number;
-    depth: number;
-  }>;
-
-  return rows.map((row) => ({
-    slug: row.slug,
-    summary: {
-      chunkCount: row.chunkCount,
-      totalBytes: row.totalBytes,
-      depth: row.depth,
-    },
-  }));
+  return {
+    version,
+    totalChunks,
+    totalBytes,
+    home: options.home ?? null,
+    description: options.description ?? null,
+    url: options.url ?? null,
+    exportedAt,
+  };
 }
 
 /**

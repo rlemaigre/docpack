@@ -2,8 +2,7 @@ import Database from "better-sqlite3";
 import type { Database as DB } from "better-sqlite3";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import YAML from "yaml";
-import type { Manifest } from "../bundler/manifest";
+
 
 // ---------------------------------------------------------------------------
 // Types
@@ -59,16 +58,15 @@ export type SummarizeOptions = SummarizeFileOptions | SummarizeLLMOptions;
 export async function summarize(options: SummarizeOptions): Promise<void> {
   const kbDir = path.resolve(options.input);
   const dbPath = path.join(kbDir, "docpack.db");
-  const yamlPath = path.join(kbDir, "docpack.yaml");
 
   if (!fs.existsSync(dbPath)) {
     throw new Error(`Knowledge base not found: ${dbPath}`);
   }
 
   if (isLLMOptions(options)) {
-    await summarizeLLM(options, dbPath, yamlPath);
+    await summarizeLLM(options, dbPath);
   } else {
-    await summarizeFile(options, dbPath, yamlPath);
+    await summarizeFile(options, dbPath);
   }
 }
 
@@ -84,7 +82,6 @@ function isLLMOptions(options: SummarizeOptions): options is SummarizeLLMOptions
 async function summarizeFile(
   options: SummarizeFileOptions,
   dbPath: string,
-  yamlPath: string,
 ): Promise<void> {
   const raw = fs.readFileSync(options.summaries, "utf8");
   const entries = parseJsonl(raw);
@@ -94,7 +91,6 @@ async function summarizeFile(
   try {
     const valid = filterValidEntries(db, deduped);
     upsertSummaries(db, valid);
-    patchManifestWithSummaries(yamlPath, db, valid);
   } finally {
     db.close();
   }
@@ -208,7 +204,6 @@ interface TreeNode {
 async function summarizeLLM(
   options: SummarizeLLMOptions,
   dbPath: string,
-  yamlPath: string,
 ): Promise<void> {
   const db = new Database(dbPath);
   try {
@@ -231,7 +226,6 @@ async function summarizeLLM(
     }));
 
     upsertSummaries(db, validEntries);
-    patchManifestWithSummaries(yamlPath, db, validEntries);
   } finally {
     db.close();
   }
@@ -495,38 +489,4 @@ async function callLLMEndpoint(
 // Manifest patching (shared)
 // ---------------------------------------------------------------------------
 
-/**
- * Patch docpack.yaml to fill the text field for affected file entries.
- *
- * Reads the existing manifest, updates only the entries whose slugs appear
- * in the summaries list, and writes back.
- */
-function patchManifestWithSummaries(
-  yamlPath: string,
-  db: DB,
-  entries: Array<{ slug: string; summary: string }>,
-): void {
-  if (entries.length === 0) return;
 
-  const content = fs.readFileSync(yamlPath, "utf8");
-  const manifest = YAML.parse(content) as Manifest;
-
-  const summaryMap = new Map<string, string>();
-  for (const entry of entries) {
-    summaryMap.set(entry.slug, entry.summary);
-  }
-
-  let changed = false;
-  for (const file of manifest.files) {
-    const summary = summaryMap.get(file.slug);
-    if (summary !== undefined) {
-      file.summary.text = summary;
-      changed = true;
-    }
-  }
-
-  if (changed) {
-    const yamlStr = YAML.stringify(manifest, { lineWidth: 0 });
-    fs.writeFileSync(yamlPath, yamlStr, "utf8");
-  }
-}

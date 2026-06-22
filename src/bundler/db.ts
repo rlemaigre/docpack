@@ -1,8 +1,9 @@
 import type { Database, Statement } from "better-sqlite3";
 import * as fs from "node:fs";
 import { toSlug } from "../utils/slug";
-import type { FSNode } from "./walker";
+import type { FileEntry } from "./walker";
 import { walkMD } from "./parser";
+import { buildSlugRegistry, rewriteLinks, type SlugRegistry } from "./link-rewriter";
 
 /** Statistics returned by insertTree. */
 export interface InsertStats {
@@ -12,23 +13,23 @@ export interface InsertStats {
 }
 
 /**
- * Walk the FSNode tree, read Markdown files, and insert into the database.
+ * Walk the flat file list, read Markdown files, and insert into the database.
  *
  * All inserts run inside a single synchronous transaction. After the transaction,
  * the closure table is materialized via recursive CTE and FTS5 is synced.
  *
- * Insert order is mandatory: parent slug must exist before children
- * (FK constraint on parent_slug).
+ * A slug registry is built before insertion so the link rewriter can resolve
+ * relative paths to slugs.
  *
  * @param db - Open database connection (caller must close).
- * @param roots - Top-level filesystem nodes from walkFS.
+ * @param files - Flat list of file entries from walkFS.
  * @param onProgress - Optional callback called per file.
  * @param onError - Optional callback called on file errors.
  * @returns Insert statistics (chunk counts, byte totals, file counts).
  */
 export function insertTree(
   db: Database,
-  roots: FSNode[],
+  files: FileEntry[],
   onProgress?: (path: string, processed: number, total: number) => void,
   onError?: (path: string, error: string) => void,
 ): InsertStats {
@@ -41,19 +42,34 @@ export function insertTree(
     filesProcessed: 0,
   };
 
-  const totalFiles = countFilesInTree(roots);
+  // First pass: resolve all slugs so the link registry is complete
+  // Track assigned slugs to avoid collisions within this batch
+  const assignedSlugs = new Set<string>();
+  const fileSlugs: Array<{ relPath: string; slug: string }> = [];
+  for (const file of files) {
+    const baseSlug = toSlug(file.name.replace(/\.[^.]+$/, "")) || file.name;
+    // For file nodes: derive a slug prefix from the directory path (e.g. "a/readme.md" -> "a")
+    const dirSlug = file.relPath.includes("/")
+      ? toSlug(file.relPath.split("/").slice(0, -1).join("-"))
+      : null;
+    const slug = resolveFileCollision(baseSlug, dirSlug, file.index, assignedSlugs);
+    assignedSlugs.add(slug);
+    fileSlugs.push({ relPath: file.relPath, slug });
+  }
 
-  // Single transaction wraps the entire bundle
-  const tx = db.transaction((roots: FSNode[]) => {
-    for (const root of roots) {
-      insertNodeRecursive(
-        root, null, db, existsStmt,
-        insertNode, stats, totalFiles, onProgress, onError,
-      );
+  // Build slug registry for link rewriting
+  const registry = buildSlugRegistry(fileSlugs);
+
+  // Second pass: insert all files
+  const tx = db.transaction((entries: FileEntry[]) => {
+    for (let i = 0; i < entries.length; i++) {
+      const file = entries[i];
+      const slug = fileSlugs[i].slug;
+      insertFileNode(file, slug, db, existsStmt, insertNode, stats, entries.length, onProgress, onError, registry);
     }
   });
 
-  tx(roots);
+  tx(files);
 
   buildClosureTable(db);
   syncFTS5(db);
@@ -79,81 +95,13 @@ function prepareExistsCheck(db: Database): Statement {
 }
 
 // ---------------------------------------------------------------------------
-// Tree insertion
+// File insertion
 // ---------------------------------------------------------------------------
 
-/** Count total file nodes in the tree (for progress tracking). */
-function countFilesInTree(nodes: FSNode[]): number {
-  let count = 0;
-  for (const n of nodes) {
-    if (n.type === "file") count++;
-    count += countFilesInTree(n.children);
-  }
-  return count;
-}
-
-/**
- * Recursively insert an FSNode and all its children into the database.
- *
- * For directory nodes: insert a directory row, then recurse into children.
- * For file nodes: read Markdown, parse headings, insert file row + heading children.
- *
- * @returns The resolved slug for the inserted node.
- */
-function insertNodeRecursive(
-  fsNode: FSNode,
-  parentSlug: string | null,
-  db: Database,
-  existsStmt: Statement,
-  insertNode: Statement,
-  stats: InsertStats,
-  totalFiles: number,
-  onProgress?: (path: string, processed: number, total: number) => void,
-  onError?: (path: string, error: string) => void,
-): string {
-  if (fsNode.type === "directory") {
-    const slug = insertDirectoryNode(fsNode, parentSlug, existsStmt, insertNode);
-    for (const child of fsNode.children) {
-      insertNodeRecursive(child, slug, db, existsStmt, insertNode, stats, totalFiles, onProgress, onError);
-    }
-    return slug;
-  }
-
-  return insertFileNode(
-    fsNode, parentSlug, db, existsStmt,
-    insertNode, stats, totalFiles, onProgress, onError,
-  );
-}
-
-/** Insert a directory node. */
-function insertDirectoryNode(
-  fsNode: FSNode,
-  parentSlug: string | null,
-  existsStmt: Statement,
-  insertNode: Statement,
-): string {
-  const desired = fsNode.path
-    ? toSlug(fsNode.name) || fsNode.name
-    : fsNode.name;
-  const slug = resolveCollision(desired, parentSlug, fsNode.index, existsStmt);
-
-  insertNode.run({
-    slug,
-    type: "directory",
-    title: fsNode.name,
-    parent_slug: parentSlug,
-    idx: fsNode.index,
-    chunk: null,
-    summary: null,
-  });
-
-  return slug;
-}
-
-/** Insert a file node: read Markdown, parse, insert heading children. */
+/** Insert a file node: read Markdown, parse, rewrite links, insert heading children. */
 function insertFileNode(
-  fsNode: FSNode,
-  parentSlug: string | null,
+  file: FileEntry,
+  slug: string,
   db: Database,
   existsStmt: Statement,
   insertNode: Statement,
@@ -161,36 +109,42 @@ function insertFileNode(
   totalFiles: number,
   onProgress?: (path: string, processed: number, total: number) => void,
   onError?: (path: string, error: string) => void,
-): string {
+  registry?: SlugRegistry,
+): void {
   stats.filesProcessed++;
 
   if (onProgress) {
-    onProgress(fsNode.path, stats.filesProcessed, totalFiles);
+    onProgress(file.relPath, stats.filesProcessed, totalFiles);
   }
 
   let markdown: string;
   try {
-    markdown = fs.readFileSync(fsNode.absolutePath, "utf8");
+    markdown = fs.readFileSync(file.absolutePath, "utf8");
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (onError) {
-      onError(fsNode.path, message);
+      onError(file.relPath, message);
     }
-    return "";
+    return;
   }
 
-  const mdTree = walkMD(fsNode.name, markdown);
+  const mdTree = walkMD(file.name, markdown);
 
-  const desiredSlug = toSlug(fsNode.name.replace(/\.[^.]+$/, "")) || fsNode.name;
-  const slug = resolveCollision(desiredSlug, parentSlug, fsNode.index, existsStmt);
+  // Rewrite links in the file node chunk
+  if (registry && mdTree.chunk) {
+    mdTree.chunk = rewriteLinks(mdTree.chunk, file.relPath, registry);
+  }
 
-  // Insert file node
+  // Rewrite links in all descendant chunks
+  rewriteLinksInTree(mdTree.children, file.relPath, registry);
+
+  // Insert file node (all files are roots, parent_slug is null)
   insertNode.run({
     slug,
     type: "file",
     title: mdTree.title,
-    parent_slug: parentSlug,
-    idx: fsNode.index,
+    parent_slug: null,
+    idx: file.index,
     chunk: mdTree.chunk,
     summary: null,
   });
@@ -198,12 +152,28 @@ function insertFileNode(
   // Track chunk stats for file node itself
   trackChunkStats(mdTree.chunk, stats);
 
-  // Insert heading children (offset idx by fsNode.index + 1 to avoid collision with file node)
+  // Insert heading children (offset idx by file.index + 1 to avoid collision with file node)
   for (const child of mdTree.children) {
-    insertMDNode(child, slug, db, existsStmt, insertNode, stats, fsNode.index + 1);
+    insertMDNode(child, slug, db, existsStmt, insertNode, stats, file.index + 1);
   }
+}
 
-  return slug;
+/** Recursively rewrite links in all MD node chunks. */
+function rewriteLinksInTree(
+  nodes: ReturnType<typeof walkMD>["children"],
+  sourceRelPath: string,
+  registry: SlugRegistry | undefined,
+): void {
+  if (!registry) return;
+
+  for (const node of nodes) {
+    if (node.chunk) {
+      node.chunk = rewriteLinks(node.chunk, sourceRelPath, registry);
+    }
+    if (node.children.length > 0) {
+      rewriteLinksInTree(node.children, sourceRelPath, registry);
+    }
+  }
 }
 
 /** Recursively insert a Markdown heading node and its children.
@@ -247,16 +217,45 @@ function insertMDNode(
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve slug collisions by prefixing with parent slug, falling back to _N.
+ * Resolve slug collisions for file nodes during the first pass.
+ * Uses an in-memory set of already-assigned slugs.
+ */
+function resolveFileCollision(
+  desiredSlug: string,
+  dirSlug: string | null,
+  index: number,
+  assigned: Set<string>,
+): string {
+  if (!assigned.has(desiredSlug)) {
+    return desiredSlug;
+  }
+  if (dirSlug) {
+    const prefixed = `${dirSlug}-${desiredSlug}`;
+    if (!assigned.has(prefixed)) {
+      return prefixed;
+    }
+  }
+  let n = index;
+  while (true) {
+    const candidate = `_${n}`;
+    if (!assigned.has(candidate)) {
+      return candidate;
+    }
+    n++;
+  }
+}
+
+/**
+ * Resolve slug collisions for section nodes against the database.
  *
  * Strategy:
  * 1. Use desired slug if it does not exist.
- * 2. Prefix with parent slug: parentSlug-desiredSlug.
+ * 2. Prefix with parent slug.
  * 3. Fallback to _N (node index), incrementing N until globally unique.
  */
 export function resolveCollision(
   desiredSlug: string,
-  parentSlug: string | null,
+  parentSlug: string,
   index: number,
   existsStmt: Statement,
 ): string {
@@ -264,11 +263,9 @@ export function resolveCollision(
     return desiredSlug;
   }
 
-  if (parentSlug) {
-    const prefixed = `${parentSlug}-${desiredSlug}`;
-    if (existsStmt.get({ slug: prefixed }) === undefined) {
-      return prefixed;
-    }
+  const prefixed = `${parentSlug}-${desiredSlug}`;
+  if (existsStmt.get({ slug: prefixed }) === undefined) {
+    return prefixed;
   }
 
   // Fallback: _N, incrementing until globally unique

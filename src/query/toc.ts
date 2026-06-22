@@ -7,7 +7,7 @@ import type { Database } from "better-sqlite3";
  * semantic discovery without expanding the full subtree.
  */
 /** Depth mode for TOC queries. */
-export type DepthMode = number | "files" | "full";
+export type DepthMode = number | "full";
 
 export interface Summary {
   chunkCount: number;
@@ -48,7 +48,7 @@ interface DescendantRow {
  *
  * @param db - Open database connection.
  * @param slug - Root node slug.
- * @param depth - Depth mode: number (levels), "files" (stop at file nodes), or "full" (no limit).
+ * @param depth - Depth mode: number (levels to unfold), or "full" (no limit).
  * @returns TOC tree, or null if slug does not exist.
  */
 export function toc(db: Database, slug: string, depth: DepthMode): TOC | null {
@@ -98,10 +98,8 @@ export function toc(db: Database, slug: string, depth: DepthMode): TOC | null {
 }
 
 /** Check if the root node should be clipped. */
-function isRootClipped(rootType: string, depth: DepthMode): boolean {
-  if (typeof depth === "number") return depth === 0;
-  if (depth === "files") return rootType === "file";
-  return false;
+function isRootClipped(_rootType: string, depth: DepthMode): boolean {
+  return typeof depth === "number" && depth === 0;
 }
 
 /** Identify nodes that should be clipped based on depth mode. */
@@ -233,9 +231,8 @@ function buildNodeTOC(
 }
 
 /** Check if a node should be clipped at the given depth. */
-function isClipped(nodeDepth: number, nodeType: string, mode: DepthMode): boolean {
+function isClipped(nodeDepth: number, _nodeType: string, mode: DepthMode): boolean {
   if (mode === "full") return false;
   if (typeof mode === "number") return nodeDepth >= mode;
-  if (mode === "files" && nodeType === "file") return true;
   return false;
 }

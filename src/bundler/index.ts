@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { toSlug } from "../utils/slug";
 import { createSchema } from "../schema";
 import { walkFS } from "./walker";
 import { insertTree } from "./db";
@@ -13,6 +14,14 @@ export interface BundleOptions {
   input: string;
   /** Path to the output directory (produces output/docpack.db + output/docpack.yaml). */
   output: string;
+  /** Human-readable description of what the KB covers. */
+  description?: string;
+  /** Source URL (wiki, website, etc.). */
+  url?: string;
+  /** Date of source data export/scraping (ISO 8601). Auto-set to bundle time if omitted. */
+  exportedAt?: string;
+  /** Path to the primary entry file. Resolved to a slug for the manifest. */
+  home?: string;
   /** Called per file during processing. */
   onProgress?: (path: string, processed: number, total: number) => void;
   /** Called per failed file. Bundler skips and continues. */
@@ -47,9 +56,15 @@ export function bundle(options: BundleOptions): BundleStats {
   const db = new Database(dbPath);
   try {
     createSchema(db);
-    const roots = walkFS(input);
-    const stats = insertTree(db, roots, onProgress, onError);
-    const manifest = buildManifest(db, pkg.version, stats.totalChunks, stats.totalBytes);
+    const files = walkFS(input);
+    const stats = insertTree(db, files, onProgress, onError);
+    const homeSlug = resolveHomeSlug(options.home, input);
+    const manifest = buildManifest(db, pkg.version, stats.totalChunks, stats.totalBytes, {
+      home: homeSlug,
+      description: options.description,
+      url: options.url,
+      exportedAt: options.exportedAt,
+    });
     writeManifest(output, manifest);
 
     return {
@@ -60,6 +75,31 @@ export function bundle(options: BundleOptions): BundleStats {
   } finally {
     db.close();
   }
+}
+
+/** Resolve the home file path to a slug, or undefined if not provided. */
+function resolveHomeSlug(homePath: string | undefined, input: string): string | undefined {
+  if (!homePath) return undefined;
+
+  const absoluteInput = path.resolve(input);
+  const absoluteHome = path.resolve(homePath);
+
+  // Check if the file exists
+  if (!fs.existsSync(absoluteHome)) {
+    process.stderr.write(`[bundle] warning: home file not found: ${homePath}\n`);
+    return undefined;
+  }
+
+  // Compute the relative path from input to home file
+  const relPath = path.relative(absoluteInput, absoluteHome).replace(/\\/g, "/");
+
+  // Derive the slug the same way the bundler does
+  const name = path.basename(relPath);
+  const baseSlug = toSlug(name.replace(/\.[^.]+$/, "")) || name;
+
+  // For now, return the base slug. In a collision scenario the actual slug
+  // may differ, but the home file is typically unique (index.md, README.md, etc.)
+  return baseSlug;
 }
 
 /** Remove existing output directory and recreate it. */

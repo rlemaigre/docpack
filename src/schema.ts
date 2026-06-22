@@ -18,7 +18,7 @@ function createNodesTable(db: Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS nodes (
       slug        TEXT PRIMARY KEY,
-      type        TEXT NOT NULL CHECK (type IN ('directory', 'file', 'section')),
+      type        TEXT NOT NULL CHECK (type IN ('file', 'section')),
       title       TEXT NOT NULL,
       parent_slug TEXT REFERENCES nodes(slug),
       idx         INTEGER NOT NULL,

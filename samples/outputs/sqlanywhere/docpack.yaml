@@ -1,29 +1,7 @@
-version: 0.1.0
+version: 0.3.0
 totalChunks: 3895
 totalBytes: 7770494
-roots:
-  - sql-anywhere-server-database-administration-en
-  - sql-anywhere-server-programming-en
-  - sql-anywhere-server-sql-reference-en
-  - sql-anywhere-server-users-guide-en
-files:
-  - slug: sql-anywhere-server-database-administration-en
-    summary:
-      chunkCount: 1386
-      totalBytes: 2575639
-      depth: 3
-  - slug: sql-anywhere-server-programming-en
-    summary:
-      chunkCount: 728
-      totalBytes: 1225542
-      depth: 3
-  - slug: sql-anywhere-server-sql-reference-en
-    summary:
-      chunkCount: 1068
-      totalBytes: 2616666
-      depth: 3
-  - slug: sql-anywhere-server-users-guide-en
-    summary:
-      chunkCount: 714
-      totalBytes: 1336040
-      depth: 3
+home: sql-anywhere-server-users-guide-en
+description: null
+url: null
+exportedAt: 2026-06-22T18:25:48.796Z

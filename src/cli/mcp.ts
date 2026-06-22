@@ -2,13 +2,11 @@ import { z } from "zod";
 import { query } from "../query";
 import { formatXml, formatYaml } from "./format";
 
-/** Parse depth argument: number, 'files', or 'full'. */
-export function parseDepth(value: string): number | "files" | "full" | null {
-  let result: number | "files" | "full" | null = null;
+/** Parse depth argument: number or 'full'. */
+export function parseDepth(value: string): number | "full" | null {
+  let result: number | "full" | null = null;
   if (value === "full") {
     result = "full";
-  } else if (value === "files") {
-    result = "files";
   } else {
     const n = Number(value);
     if (Number.isInteger(n) && n >= 0) {
@@ -74,7 +72,7 @@ function registerTocTool(
       description: "Return the table of contents for a slug.",
       inputSchema: {
         slug: z.string().describe("Node slug"),
-        depth: z.string().optional().describe("Depth mode: number, 'files', or 'full'"),
+        depth: z.string().optional().describe("Depth mode: number or 'full'"),
       },
     },
     (args: { slug: string; depth?: string }) => {

@@ -77,6 +77,16 @@ Delta specs capture the changes for a feature branch — what's changing, why, a
 3. Once the branch is merged (or abandoned), move it to `archived/` with the branch name in the filename: `archived/DELTA_SPECS_<branchname>.md`.
 4. Never keep a `DELTA_SPECS.md` at the root longer than the branch it belongs to.
 
+# Delta Plan
+
+Optional implementation plan for complex changes. Tracks phased tasks with checkboxes and dependencies. Kept separate from delta specs to avoid bloating the spec with implementation details.
+
+**Lifecycle:**
+1. Create `DELTA_PLAN.md` at the project root when the change spans multiple phases or files.
+2. Check off tasks as they are completed.
+3. Once the branch is merged (or abandoned), delete `DELTA_PLAN.md`.
+4. Never keep a `DELTA_PLAN.md` at the root longer than the branch it belongs to.
+
 **Format:**
 ```
 # Delta Specs — <branchname>

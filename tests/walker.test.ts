@@ -26,7 +26,7 @@ describe("walkFS", () => {
     expect(result[1].name).toBe("b.txt");
   });
 
-  it("discovers nested files and directories", () => {
+  it("discovers nested files as flat list", () => {
     fs.mkdirSync(path.join(tmpDir, "docs", "api"), { recursive: true });
     fs.writeFileSync(path.join(tmpDir, "readme.md"), "root");
     fs.writeFileSync(path.join(tmpDir, "docs", "guide.md"), "guide");
@@ -34,31 +34,26 @@ describe("walkFS", () => {
 
     const result = walkFS(tmpDir);
 
-    // Should have: docs (dir), readme.md (file)
-    expect(result).toHaveLength(2);
+    // All files are flat, no directory nodes
+    expect(result).toHaveLength(3);
 
-    const docsDir = result.find((n) => n.name === "docs");
-    expect(docsDir).toBeDefined();
-    expect(docsDir?.type).toBe("directory");
-
-    // docs should have: api (dir), guide.md (file)
-    expect(docsDir?.children).toHaveLength(2);
-
-    const apiDir = docsDir?.children.find((n) => n.name === "api");
-    expect(apiDir).toBeDefined();
-    expect(apiDir?.children).toHaveLength(1);
-    expect(apiDir?.children[0].name).toBe("auth.md");
+    // relPath preserves original directory structure
+    expect(result.find((f) => f.name === "readme.md")?.relPath).toBe("readme.md");
+    expect(result.find((f) => f.name === "guide.md")?.relPath).toBe("docs/guide.md");
+    expect(result.find((f) => f.name === "auth.md")?.relPath).toBe("docs/api/auth.md");
   });
 
-  it("sorts directories before files", () => {
+  it("sorts by full path with numeric locale ordering", () => {
     fs.writeFileSync(path.join(tmpDir, "z.md"), "z");
     fs.writeFileSync(path.join(tmpDir, "a.md"), "a");
     fs.mkdirSync(path.join(tmpDir, "b-dir"));
+    fs.writeFileSync(path.join(tmpDir, "b-dir", "file.md"), "file");
 
     const result = walkFS(tmpDir);
-    // b-dir should come first (directories before files)
-    expect(result[0].name).toBe("b-dir");
-    expect(result[0].type).toBe("directory");
+    // Sorted by full path: a.md, b-dir/file.md, z.md
+    expect(result[0].name).toBe("a.md");
+    expect(result[1].name).toBe("file.md");
+    expect(result[2].name).toBe("z.md");
   });
 
   it("assigns correct indices", () => {
@@ -75,16 +70,15 @@ describe("walkFS", () => {
     expect(result[2].index).toBe(2);
   });
 
-  it("sets parent pointers correctly", () => {
-    fs.mkdirSync(path.join(tmpDir, "sub"), { recursive: true });
-    fs.writeFileSync(path.join(tmpDir, "sub", "file.md"), "content");
+  it("handles single file input", () => {
+    const filePath = path.join(tmpDir, "single.md");
+    fs.writeFileSync(filePath, "content");
 
-    const result = walkFS(tmpDir);
-    const subDir = result.find((n) => n.name === "sub");
-    const fileNode = subDir?.children[0];
-
-    expect(fileNode?.parent).toBe(subDir);
-    expect(subDir?.parent).toBeNull();
+    const result = walkFS(filePath);
+    expect(result).toHaveLength(1);
+    expect(result[0].name).toBe("single.md");
+    expect(result[0].relPath).toBe("single.md");
+    expect(result[0].absolutePath).toBe(filePath);
   });
 
 });

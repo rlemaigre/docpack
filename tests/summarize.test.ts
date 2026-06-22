@@ -64,7 +64,7 @@ describe("summarize (JSONL file mode)", () => {
     }
   });
 
-  it("updates manifest with text field", async () => {
+  it("updates node summary in DB", async () => {
     setupKB();
 
     writeSummaries([
@@ -73,8 +73,13 @@ describe("summarize (JSONL file mode)", () => {
 
     await summarize({ input: outputDir, summaries: summariesFile });
 
-    const yaml = fs.readFileSync(path.join(outputDir, "docpack.yaml"), "utf8");
-    expect(yaml).toContain("text: README summary text");
+    const db = new Database(path.join(outputDir, "docpack.db"));
+    try {
+      const row = db.prepare("SELECT summary FROM nodes WHERE slug = ?").get("readme") as { summary: string | null };
+      expect(row.summary).toBe("README summary text");
+    } finally {
+      db.close();
+    }
   });
 
   it("upserts without clearing existing summaries", async () => {
@@ -230,7 +235,7 @@ describe("summarize (JSONL file mode)", () => {
     }).rejects.toThrow();
   });
 
-  it("patches manifest only for affected entries", async () => {
+  it("upserts summaries across multiple passes", async () => {
     setupKB();
 
     // First pass: set summary for readme
@@ -239,18 +244,22 @@ describe("summarize (JSONL file mode)", () => {
     ]);
     await summarize({ input: outputDir, summaries: summariesFile });
 
-    let yaml = fs.readFileSync(path.join(outputDir, "docpack.yaml"), "utf8");
-    expect(yaml).toContain("text: Readme summary");
-
     // Second pass: set summary for guide
     writeSummaries([
       '{"slug":"guide","summary":"Guide summary"}',
     ]);
     await summarize({ input: outputDir, summaries: summariesFile });
 
-    yaml = fs.readFileSync(path.join(outputDir, "docpack.yaml"), "utf8");
-    // Both summaries should be present
-    expect(yaml).toContain("text: Readme summary");
-    expect(yaml).toContain("text: Guide summary");
+    // Both summaries should be present in DB
+    const db = new Database(path.join(outputDir, "docpack.db"));
+    try {
+      const readme = db.prepare("SELECT summary FROM nodes WHERE slug = ?").get("readme") as { summary: string | null };
+      expect(readme.summary).toBe("Readme summary");
+
+      const guide = db.prepare("SELECT summary FROM nodes WHERE slug = ?").get("guide") as { summary: string | null };
+      expect(guide.summary).toBe("Guide summary");
+    } finally {
+      db.close();
+    }
   });
 });
