@@ -2,8 +2,6 @@
 
 Bundle any directory of documents into a portable, queryable knowledge base.
 
-SQLite backend with FTS5 full-text search. Navigate hierarchies via TOC, retrieve any node as XML, or expose tools over MCP.
-
 ```bash
 docpack bundle --input ./docs --output ./mykb --converter ./convert.ts
 docpack toc ./mykb "getting-started" --depth 2
@@ -34,41 +32,44 @@ docpack serve ./mykb --mcp
 
 ## Usage
 
-**CLI (one-shot):**
+**From CLI**
+
 ```bash
 npx @rlemaigre/docpack manifest ./mykb
 ```
 
-**CLI (installed):**
+**Or install**
+
 ```bash
 npm install @rlemaigre/docpack
 docpack manifest ./mykb
 ```
 
-**TypeScript library:**
+**From TypeScript**
+
 ```ts
-import { bundle, query, summarize } from "@rlemaigre/docpack";
+import { bundle, query } from "@rlemaigre/docpack";
 ```
 
 ## Output
 
-Produces two files:
+Bundle command produces two files:
 
 ```
 mykb/
   docpack.db        # SQLite knowledge base
-  docpack.yaml      # human-readable manifest
+  docpack.yaml      # human-readable manifest and entry points
 ```
 
 ## Cheat sheet
 
-| Command | Output | Use |
-|---|---|---|
-| `manifest <kb>` | YAML | KB overview, root slugs, file stats |
-| `toc <kb> <slug> --depth N` | YAML | Hierarchy with clipped subtree summaries |
-| `get <kb> <slug>` | XML | Node content + full subtree |
-| `search <kb> "query" --limit N --offset O` | YAML | FTS5 search with BM25 ranking |
-| `serve <kb> --mcp` | stdio | Long-lived MCP server for AI agents |
+| Command                                    | Output | Use                                      |
+| ------------------------------------------ | ------ | ---------------------------------------- |
+| `manifest <kb>`                            | YAML   | KB overview, root slugs, file stats      |
+| `toc <kb> <slug> --depth N`                | YAML   | Hierarchy with clipped subtree summaries |
+| `get <kb> <slug>`                          | XML    | Node content + full subtree              |
+| `search <kb> "query" --limit N --offset O` | YAML   | FTS5 search with BM25 ranking            |
+| `serve <kb> --mcp`                         | stdio  | Long-lived MCP server for AI agents      |
 
 ## Architecture
 
@@ -83,7 +84,7 @@ flowchart LR
     F --> G[CLI / MCP / TS library]
 ```
 
-The bundler walks the filesystem, delegates each file to a user-supplied converter, parses Markdown headings into a node tree, and stores everything in SQLite with an FTS5 index. The query side reads from the same database -- no server, no network.
+The bundler walks the filesystem, delegates each file to a user-supplied converter, parses Markdown headings into a node tree, and stores everything in SQLite with an FTS5 index. The query side reads from the same database.
 
 ### Node hierarchy
 
@@ -98,13 +99,13 @@ graph TD
     S2 --> L3[leaf]
 ```
 
-Three node types:
+Three input types, abstracted into a single `Node` primitive:
 
 - **directory** -- filesystem folder, no self content
 - **file** -- ingested source document, may contain sections
 - **section** -- Markdown heading, may contain subsections
 
-Every node has a `slug` (globally unique), `title`, `chunk` (self content), and `summary` (subtree overview).
+Every `Node` has a `slug` (globally unique), `title`, `chunk` (self content), and `children`.
 
 ## CLI reference
 
@@ -114,12 +115,12 @@ Every node has a `slug` (globally unique), `title`, `chunk` (self content), and 
 docpack bundle --input <path> --output <path> --converter <path> [--include <glob>]
 ```
 
-| Option | Required | Description |
-|---|---|---|
-| `--input` | yes | File or directory to bundle |
-| `--output` | yes | Output directory (creates `docpack.db` + `docpack.yaml`) |
-| `--converter` | yes | Script exporting a `Converter` function |
-| `--include` | no | Glob pattern (default: `**/*`) |
+| Option        | Required | Description                                              |
+| ------------- | -------- | -------------------------------------------------------- |
+| `--input`     | yes      | File or directory to bundle                              |
+| `--output`    | yes      | Output directory (creates `docpack.db` + `docpack.yaml`) |
+| `--converter` | yes      | Script exporting a `Converter` function                  |
+| `--include`   | no       | Glob pattern (default: `**/*`)                           |
 
 Converter script:
 
@@ -150,13 +151,13 @@ Returns YAML with version, statistics, root slugs, and file-level summaries.
 docpack toc <kb> <slug> [--depth <mode>]
 ```
 
-| Depth mode | Behavior |
-|---|---|
+| Depth mode   | Behavior                             |
+| ------------ | ------------------------------------ |
 | `N` (number) | Unfold N levels, clip with `Summary` |
-| `files` | Expand to file boundaries |
-| `full` | Complete tree, no clipping |
+| `files`      | Expand to file boundaries            |
+| `full`       | Complete tree, no clipping           |
 
-Clipped subtrees carry a `Summary` object with `chunkCount`, `totalBytes`, `depth`, and optional `text`.
+For clipped subtrees, children `Nodes` are replaced with a `Summary` object : `chunkCount`, `totalBytes`, `depth`, and optional summary `text`.
 
 ### get
 
@@ -183,6 +184,8 @@ FTS5 full-text search over titles and chunk content. Query language supports:
 
 Results ranked by BM25 score. `total` gives full result set size.
 
+Embeddings and reranking : TBD (requires AI).
+
 ### summarize
 
 ```bash
@@ -192,7 +195,7 @@ docpack summarize <kb> --fn <path>
 Post-processing pass. The script receives a live KB instance and an `emit` callback:
 
 ```ts
-export default async function(kb, emit) {
+export default async function (kb, emit) {
   const manifest = kb.manifest();
   for (const file of manifest.files) {
     const doc = kb.get(file.slug);
@@ -208,7 +211,7 @@ export default async function(kb, emit) {
 docpack serve <kb> --mcp
 ```
 
-Starts an MCP server over stdio with four tools: `manifest`, `toc`, `get`, `search`.
+Starts an MCP server over stdio, exposing a knowledge base with four tools: `manifest`, `toc`, `get`, `search`.
 
 ## TypeScript API
 
@@ -291,7 +294,7 @@ Node = {
   index: number,
   chunk: string?,      // self content (Markdown)
   summary: string?,    // subtree overview
-  children: Node[]
+  children: Node[] | Summary
 }
 ```
 
