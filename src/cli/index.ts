@@ -10,7 +10,7 @@ import { startMCPServer, parseDepth } from "./mcp";
 
 const cli = cac("docpack");
 
-cli.version("0.3.0");
+cli.version("0.5.0");
 cli.help();
 
 // ---------------------------------------------------------------------------
