@@ -1,6 +1,6 @@
 {
   "name": "@rlemaigre/docpack",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Turn a directory of documents into a portable, queryable knowledge base",
   "type": "module",
   "main": "dist/index.js",

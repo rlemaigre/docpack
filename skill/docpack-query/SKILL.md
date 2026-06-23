@@ -22,92 +22,112 @@ Output scales with KB size. These relative orderings hold across KBs. Use `chunk
 | Command | Relative cost | Use for |
 |---|---|---|
 | `manifest` | tiny | Always start here. KB stats + home slug. |
-| `toc <slug> --depth 1` | small | Scout structure. Shows children with `chunkCount` and `totalBytes`. |
+| `toc <slug> --depth 1` | small | Scout structure. Children show `chunkCount` and `totalBytes`. |
 | `toc <home> --depth 2` | medium | Detailed overview of top sections. Usually safe. |
-| `toc <section> --depth 2` | medium-large | Risky on large sections. Check depth 1 first. |
-| `search "<query>" --limit N` | scales with N | Returns full chunk text per hit. Use `--limit 1-3` for budget. |
-| `get <leaf>` | small | Retrieve a single section (depth=0). Best value for content. |
-| `get <internal>` | large | Full subtree. Only when you need all children. |
+| `toc <section> --depth 2` | medium | Check depth 1 first. Scales with section size. |
+| `search "<q>" --limit 5` | small | Snippet excerpts (~30 tokens per hit). Use `--limit 3-10`. |
+| `search "title:q" --limit 5` | tiny | Title-only search. 3–5x smaller than regular search. |
+| `get <leaf>` | small | Single section (depth=0). Best value for content. |
+| `get --slug a --slug b` | small (batch) | Fewer API calls, shared XML wrapper. Skips missing slugs. |
+| `get <internal>` | large | Full subtree. ~10x larger than `toc --depth 2` on the same node. |
 | `get <root>` | huge | Avoid. Use `toc` + targeted `get` calls instead. |
 
-**Rule of thumb:** `toc` for structure, `get` for content. Never `get` a root document.
+**Rule of thumb:** `toc` for structure, `search` for discovery, `get` for content. Never `get` a root document.
 
-## Query strategies
-
-### Strategy 1: Discovery (broad questions)
-
-Use when you need to understand what the KB covers before asking specific questions.
-
-**Step 1: `manifest`** -- get KB overview and home slug.
+## Phase 0: Always start with manifest
 
 ```bash
 npx @rlemaigre/docpack manifest ./mykb
 ```
 
-Returns `version`, `totalChunks`, `totalBytes`, `home` (slug of the primary entry file), `description`, `url`, and `exportedAt`. Use the `home` slug as your entry point.
+Returns `version`, `totalChunks`, `totalBytes`, `home` (slug of the primary entry file), `description`, `url`, and `exportedAt`.
 
-**Step 2: `toc --depth 1`** -- map the top-level structure.
+Use `totalChunks` and `totalBytes` to gauge KB size. Use `home` as your entry point slug.
+
+## Phase 1: Assess the home file structure
 
 ```bash
 npx @rlemaigre/docpack toc ./mykb "<home_slug>" --depth 1
 ```
 
-Each child shows `chunkCount`, `totalBytes`, and `depth`. Use these to identify which sections are large vs small. Pick sections to drill into.
+Each child shows `chunkCount`, `totalBytes`, and `depth`. This tells you two things:
 
-**Step 3: `toc --depth 2`** -- drill one level deeper on sections of interest.
+1. **Is the home file a good TOC?** If it has many children (5+), it's a structured entry point. Drill with `toc --depth 2` on sections of interest.
+
+2. **Is the home file flat?** If it has 1-2 children, the home file is not useful for navigation. Switch to a **search-driven strategy** (see below).
+
+### Good home file → TOC-driven strategy
 
 ```bash
+# Drill one level deeper on sections of interest
 npx @rlemaigre/docpack toc ./mykb "<section_slug>" --depth 2
-```
 
-**Step 4: `get`** -- retrieve specific leaf sections.
-
-```bash
+# Retrieve specific leaf sections (depth=0)
 npx @rlemaigre/docpack get ./mykb --slug "<leaf_slug>"
 ```
 
-Returns XML with chunk content and children. Leaf sections (depth=0) are the smallest units.
+Use `chunkCount` and `totalBytes` from depth 1 to decide which sections are worth exploring.
 
-### Strategy 2: Search (focused questions)
+### Flat home file → search-driven strategy
 
-Use when you know the topic but not its location in the KB.
+When the home file has few children, use search to discover content:
 
 ```bash
-# Search with combined terms for narrow results
-npx @rlemaigre/docpack search ./mykb "DataWindow AND filter" --limit 5 --offset 0
+# Broad search to find relevant sections
+npx @rlemaigre/docpack search ./mykb "topic" --limit 10
+
+# Use parent slugs from hits to understand structure
+npx @rlemaigre/docpack toc ./mykb "<parent_slug>" --depth 1
+
+# Retrieve content
+npx @rlemaigre/docpack get ./mykb --slug "<leaf_slug>"
 ```
 
-Returns ranked hits with matched text. Each hit includes the full chunk content, so output grows quickly. Use `--limit 1-3` for token efficiency. Extract the `slug` from results and call `get` for full context.
+## Query strategies
 
-**Token-efficient variant:** pipe search to a file, extract slugs, then get what you need:
+### Strategy 1: Focused question (search → get)
+
+Best when you know the topic but not its location.
 
 ```bash
-# Save search results
-npx @rlemaigre/docpack search ./mykb "DataWindow AND filter" --limit 10 > /tmp/hits.yaml
+# Step 1: search with combined terms
+npx @rlemaigre/docpack search ./mykb "DataWindow AND filter" --limit 5
 
-# Extract just the slugs
-grep "slug:" /tmp/hits.yaml
-
-# Get specific documents
+# Step 2: pick the best match from snippets, get full content
 npx @rlemaigre/docpack get ./mykb --slug "9-31-filter"
 ```
 
-### Strategy 3: Hybrid (complex questions)
+Search returns **snippet excerpts** (~30 tokens per hit with `<b>`/`</b>` markers), not full chunks. Output is compact. Use `--limit 3-10` depending on how many candidates you want to scan.
 
-Best for questions that require context around a specific topic.
+### Strategy 2: Find sections by name (title: search)
+
+Extremely token-efficient. Searches only document titles, returns just the title text as snippet.
 
 ```bash
-# 1. Find relevant sections
-npx @rlemaigre/docpack search ./mykb "authentication AND OAuth" --limit 5
-
-# 2. Understand the section's place in the hierarchy
-npx @rlemaigre/docpack toc ./mykb "<parent_slug>" --depth 1
-
-# 3. Retrieve the full content
-npx @rlemaigre/docpack get ./mykb --slug "<target_slug>"
+npx @rlemaigre/docpack search ./mykb "title:filter" --limit 5
 ```
 
-### Strategy 4: Sequential navigation
+Output is ~120 bytes for 3 hits. Use this to find sections when you know part of their name.
+
+### Strategy 3: Content-only search (chunk: search)
+
+Search only chunk content, excluding titles. Useful when title matches are noisy.
+
+```bash
+npx @rlemaigre/docpack search ./mykb "chunk:authentication" --limit 5
+```
+
+### Strategy 4: Multi-section retrieval (batch get)
+
+Fetch multiple documents in one call. Missing slugs are skipped silently.
+
+```bash
+npx @rlemaigre/docpack get ./mykb --slug "9-31-filter" --slug "9-32-filteredcount" --slug "9-166-setfilter"
+```
+
+Saves wrapper overhead vs individual calls. All results share a single `<documents>` root.
+
+### Strategy 5: Sequential navigation
 
 Use `prev`/`next` attributes in `get` XML output to walk through sections in reading order:
 
@@ -120,35 +140,66 @@ npx @rlemaigre/docpack get ./mykb --slug "17-2-choosing-a-presentation-style"
 npx @rlemaigre/docpack get ./mykb --slug "17-2-2-using-the-freeform-style"
 ```
 
-`prev`/`next` are present on section documents (children of files), not on root documents.
+`prev`/`next` are present on section documents (children of files), not on root documents. Search results also carry `prev`/`next`/`parent` for navigation context.
+
+### Strategy 6: Search + pagination
+
+For broad topics with many matches, paginate through results:
+
+```bash
+npx @rlemaigre/docpack search ./mykb "DataWindow" --limit 5 --offset 0
+npx @rlemaigre/docpack search ./mykb "DataWindow" --limit 5 --offset 5
+npx @rlemaigre/docpack search ./mykb "DataWindow" --limit 5 --offset 10
+```
+
+The `total` field tells you how many matches exist. Use it to decide how many pages to fetch.
+
+### Strategy 7: Hybrid (search → context → get)
+
+For questions that require understanding a section's place in the hierarchy:
+
+```bash
+# 1. Find relevant sections
+npx @rlemaigre/docpack search ./mykb "authentication AND OAuth" --limit 5
+
+# 2. Understand the section's place in the hierarchy (from parent slug in search hit)
+npx @rlemaigre/docpack toc ./mykb "<parent_slug>" --depth 1
+
+# 3. Retrieve the full content
+npx @rlemaigre/docpack get ./mykb --slug "<target_slug>"
+```
 
 ## Search operators
 
 | Operator | Example | Notes |
 |---|---|---|
-| AND | `"term1 AND term2"` | Narrows results. Use this. |
-| OR | `"term1 OR term2"` | Broadens results. Returns more hits. |
+| AND | `"term1 AND term2"` | Narrows results. Reliable. |
+| OR | `"term1 OR term2"` | Broadens results. Can return thousands of hits. |
 | Phrase | `'"exact phrase"'` | Matches exact word sequence. |
 | Prefix | `"DataW*"` | Partial matching. Can return many hits. |
-| Column | `"title:term"` | Search only titles or only chunks. |
-| NEAR | `"term1 NEAR term2"` | Limited support. Often returns 0 results. |
-| NOT | `"term1 NOT term2"` | Works but can produce counterintuitive sets. |
+| Column: title | `"title:term"` | Search only titles. 3–5x smaller than regular search. Extremely compact. |
+| Column: chunk | `"chunk:term"` | Search only content, not titles. |
+| NOT | `"term1 NOT term2"` | Excludes matches. Reliable for filtering noise. |
 
-**Avoid:** `NEAR` (unreliable), `NOT` (counterintuitive), single broad terms (too many hits).
+**Avoid:** `NEAR` (unreliable — matches "near" as a regular term, not as a proximity operator), single broad terms (too many hits).
 
 ## What works great
 
 - **`manifest`** -- instant KB overview with metadata and home slug. Always start here.
 - **`toc --depth 1`** -- top-level section summaries give you a semantic map. Use `chunkCount` and `totalBytes` to gauge section size.
 - **`search "term1 AND term2"`** -- boolean AND narrows results effectively.
+- **`search "title:term"`** -- find sections by name. 3–5x smaller than regular search. Extremely compact.
+- **`search "term1 NOT term2"`** -- exclude noise terms. Reliable filtering.
 - **`get <leaf_slug>`** -- returns a single section. Best value for reading.
-- **`prev`/`next` navigation** -- walk through sections in reading order without re-searching.
+- **`get --slug a --slug b`** -- batch retrieval. Fewer API calls, shared XML wrapper. Skips missing slugs.
+- **`prev`/`next`/`parent` navigation** -- walk through sections in reading order. Available in both search results and `get` output. Use `parent` from search hits to jump to context via `toc`.
 
 ## What works good
 
 - **`toc --depth 2` on home** -- second-level summaries let you drill without loading full content. Usually safe.
 - **`search "prefix*"`** -- prefix matching for partial terms (e.g., `GetSeries*`). Can return many hits.
-- **`search "title:term"`** -- column-specific search targets titles only. Useful for finding section names.
+- **`search "chunk:term"`** -- content-only search when titles are noisy.
+- **Search pagination** -- `--offset` lets you page through large result sets without blowing token budget.
 
 ## What works so-so
 
@@ -160,14 +211,32 @@ npx @rlemaigre/docpack get ./mykb --slug "17-2-2-using-the-freeform-style"
 
 - **Searching terms not in source content** -- summaries may use different vocabulary than the source. Search the chunk content, not the summaries.
 - **`get` on root documents** -- returns the full subtree as XML. Use `toc` with depth limits first.
+- **`get` on internal nodes** -- returns full subtree as XML. ~11x larger than `toc --depth 2` on the same node. Use `toc` to scout, then `get` individual leaves.
 - **`toc --depth full`** -- can exceed token budgets. Use incremental depth instead.
 - **Phrase search with special characters** -- dots, underscores in phrases often fail. Use space-separated terms instead.
+
+## Adaptive strategy selection
+
+Choose your approach based on what `manifest` and `toc --depth 1` reveal:
+
+| KB characteristic | Best strategy |
+|---|---|
+| Home has 5+ children | TOC-driven: `toc` → drill → `get` leaves |
+| Home has 1-2 children | Search-driven: `search` → use `parent` from hits → `toc` → `get` |
+| Focused question (known topic) | `search "term1 AND term2"` → `get` best match |
+| Finding a section by name | `search "title:name"` → `get` |
+| Exploring a topic broadly | `search "topic" --limit 10` with `--offset` pagination |
+| Reading a chapter sequentially | `get` first section → follow `next` chain |
+| Comparing multiple sections | `search` → extract slugs → `batch get` |
+| Need context around a search hit | Use `parent` slug from hit → `toc <parent> --depth 1` |
+
+**Key insight:** `get` on an internal node returns the full subtree as XML — roughly **11x larger** than `toc --depth 2` on the same node. Always prefer `toc` for structure scouting, then `get` individual leaves for content.
 
 ## Anti-rationalization table
 
 | Don't | Do |
 |---|---|
-| Call `get` on a root slug | Use `toc --depth 1` to find the right section, then `get` leaves |
+| Call `get` on a root or internal slug | Use `toc --depth 1` to find the right section, then `get` leaves |
 | Use `NEAR` expecting proximity results | Use `AND` with smaller result sets |
 | Run `toc --depth full` on a large KB | Increment depth: 1, then 2, then target specific slugs |
 | Parse YAML output programmatically | Parse XML output from `get` -- it's structured and stable |
@@ -175,7 +244,8 @@ npx @rlemaigre/docpack get ./mykb --slug "17-2-2-using-the-freeform-style"
 | Skip `manifest` and go straight to `search` | Always read `manifest` first to understand KB scope |
 | Search single broad terms like "component" | Combine terms: `component AND render`, use `--limit 3` |
 | Search for paraphrased summary terms | Search for terms from the source material |
-| Pipe full search output into context | Save to file, extract slugs with `grep`, then `get` what you need |
+| Assume home TOC is always useful | Check `toc --depth 1` on home; if flat (1-2 children), switch to search |
+| `get` a section to see its children | Use `toc <slug> --depth 1` — ~11x smaller than `get` |
 
 ## MCP server
 
@@ -192,7 +262,7 @@ Exposes four tools over stdio:
 | `manifest` | none | KB overview (version, totalChunks, totalBytes, home, description, url, exportedAt) |
 | `toc` | `slug`, `depth` | Hierarchy with clipped summaries |
 | `get` | `slug` | Full document with subtree (XML) |
-| `search` | `query`, `limit`, `offset` | Ranked search results |
+| `search` | `query`, `limit`, `offset` | Ranked search results with snippets |
 
 The MCP server keeps the DB connection open across tool calls. Use it instead of repeated CLI invocations for multi-step research.
 
@@ -212,6 +282,9 @@ const toc = kb.toc("api-reference", 2);
 
 // Get full subtree
 const doc = kb.get("api-auth");
+
+// Batch get multiple documents
+const docs = kb.get(["api-auth", "api-billing"]);
 
 // Search
 const results = kb.search({
@@ -236,8 +309,10 @@ When generating summaries (via JSONL import or LLM fold mode), follow these rule
 
 2. **Token budget** -- `get` on large documents returns full subtrees as XML. A document with 800+ children can exceed context windows. Use `toc` with depth limits to scout first.
 
-3. **Broad searches** -- Single-term searches on common words return thousands of hits. Always combine terms with `AND` and use `--limit`.
+3. **`get` vs `toc` ratio** -- `get` on an internal node returns ~11x more data than `toc --depth 2` on the same node. Always use `toc` for structure, then `get` individual leaves for content.
 
-4. **Search output size** -- `search` returns full chunk text per hit. Output grows quickly with result count. Save to a file and extract slugs with `grep` if you only need the document references.
+4. **Broad searches** -- Single-term searches on common words return thousands of hits. Always combine terms with `AND` and use `--limit`.
 
-5. **YAML parsing** -- CLI outputs YAML for `manifest`, `toc`, and `search`. It's meant for human reading. For programmatic access, use XML from `get` or the TypeScript library directly.
+5. **Flat home files** -- not all KBs have useful home files. Check `toc --depth 1` on the home slug; if it has 1-2 children, rely on search instead of TOC navigation.
+
+6. **Phrase search with special characters** -- dots, underscores in phrases often fail. Use space-separated terms or `title:` column search instead.

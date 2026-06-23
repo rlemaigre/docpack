@@ -11,10 +11,17 @@ description: <%= it.useWhen %>
 
 - **Version:** <%= it.version %>
 - **Chunks:** <%= it.chunks %>
-- **Size:** <%= it.size %><% if (it.home) { %>
-- **Home:** <%= it.home %><% } %><% if (it.description) { %>
-- **Description:** <%= it.description %><% } %><% if (it.url) { %>
-- **Source:** <%= it.url %><% } %><% if (it.structure) { %>
+- **Size:** <%= it.size %>
+<% if (it.home) { %>
+- **Home:** <%= it.home %>
+<% } %>
+<% if (it.description) { %>
+- **Description:** <%= it.description %>
+<% } %>
+<% if (it.url) { %>
+- **Source:** <%= it.url %>
+<% } %>
+<% if (it.structure) { %>
 
 ## Structure
 
@@ -33,74 +40,103 @@ node ./scripts/docpack.mjs search "<query>" --limit 5
 
 ## Token budget (relative)
 
-Output grows with KB size. These orderings hold across KBs:
+Output grows with KB size. These relative orderings hold across KBs. Use `chunkCount` and `totalBytes` from `toc` to gauge actual sizes:
 
 | Command | Relative cost | Use for |
 |---|---|---|
 | `manifest` | tiny | Always start here. KB stats + home slug. |
-| `toc --depth 1` | small | Scout structure. Shows children with `chunkCount` and `totalBytes` -- use those to gauge size. |
-| `toc --depth 2` | medium | Detailed overview. Safe on home, risky on large sections. Check depth 1 first. |
-| `search --limit N` | scales with N | Snippet excerpts (~30 tokens) per hit. Use `--limit 1-5` for budget. |
-| `get <leaf>` | small | Retrieve a single section (depth=0). Best value for content. |
-| `get <internal>` | large | Full subtree. Only when you need all children. |
+| `toc --depth 1` | small | Scout structure. Children show `chunkCount` and `totalBytes`. |
+| `toc --depth 2` | medium | Detailed overview. Safe on home, check depth 1 first for sections. |
+| `search --limit 5` | small | Snippet excerpts (~30 tokens per hit). Use `--limit 3-10`. |
+| `search "title:q" --limit 5` | tiny | Title-only search. 3–5x smaller than regular search. |
+| `get <leaf>` | small | Single section (depth=0). Best value for content. |
+| `get --slug a --slug b` | small (batch) | Fewer API calls, shared XML wrapper. Skips missing slugs. |
+| `get <internal>` | large | Full subtree. ~10x larger than `toc --depth 2` on the same node. |
 | `get <root>` | huge | Avoid. Use `toc` + targeted `get` calls instead. |
 
-**Rule:** `toc` for structure, `get` for content. Never `get` a root document. Always check `chunkCount` and `totalBytes` in `toc` output before calling `get`.
+**Rule:** `toc` for structure, `search` for discovery, `get` for content. Never `get` a root document.
 
 ## Query strategies
 
-### Discovery (broad questions)
-
-Start with `manifest`, then `toc --depth 1` on the home slug to map the structure. Drill with `toc --depth 2` on sections of interest. Use `get` on leaf slugs (depth=0) for focused content.
-
-### Search (focused questions)
+### Start: manifest → assess home
 
 ```bash
-node ./scripts/docpack.mjs search "term1 AND term2" --limit 3
+node ./scripts/docpack.mjs manifest
+node ./scripts/docpack.mjs toc "<%= it.home %>" --depth 1
 ```
 
-Combine terms with `AND` for narrow results. Use `--limit 1-5` for token efficiency. `search` returns snippet excerpts (~30 tokens) per hit.
+If the home file has 5+ children, use TOC-driven navigation. If flat (1-2 children), switch to search-driven discovery.
 
-**Token-efficient variant** -- use snippets to scan results, then `get` what you need:
+### Focused question (search → get)
 
 ```bash
-node ./scripts/docpack.mjs search "DataWindow AND filter" --limit 10
-grep "slug:" /tmp/hits.yaml
-node ./scripts/docpack.mjs get --slug "9-31-filter"
+node ./scripts/docpack.mjs search "term1 AND term2" --limit 5
+node ./scripts/docpack.mjs get --slug "<best_match_slug>"
 ```
+
+Search returns **snippet excerpts** (~30 tokens per hit), not full chunks. Output is compact.
+
+### Find sections by name
+
+```bash
+node ./scripts/docpack.mjs search "title:keyword" --limit 5
+```
+
+Searches only titles. Extremely compact output.
+
+### Multiple sections (batch get)
+
+```bash
+node ./scripts/docpack.mjs get --slug "slug1" --slug "slug2" --slug "slug3"
+```
+
+Fetches multiple documents in one call. Missing slugs are skipped.
 
 ### Sequential navigation
 
-Use `prev`/`next` attributes in `get` XML output to walk through sections in reading order. These are present on section documents, not root documents.
+Use `prev`/`next` in `get` XML output and search results to walk through sections in reading order. These are present on section documents, not root documents.
+
+### Pagination
+
+```bash
+node ./scripts/docpack.mjs search "topic" --limit 5 --offset 0
+node ./scripts/docpack.mjs search "topic" --limit 5 --offset 5
+```
+
+The `total` field tells you how many matches exist.
 
 ## Search operators
 
 | Operator | Example | Notes |
 |---|---|---|
-| AND | `"term1 AND term2"` | Narrows results. Use this. |
-| OR | `"term1 OR term2"` | Broadens results. More hits. |
+| AND | `"term1 AND term2"` | Narrows results. Reliable. |
+| OR | `"term1 OR term2"` | Broadens results. Can return thousands of hits. |
 | Phrase | `'"exact phrase"'` | Exact word sequence. |
 | Prefix | `"DataW*"` | Partial matching. Can return many hits. |
-| Column | `"title:term"` | Search only titles or chunks. |
+| title: | `"title:term"` | Search only titles. 3–5x smaller than regular search. Very compact. |
+| chunk: | `"chunk:term"` | Search only content, not titles. |
+| NOT | `"term1 NOT term2"` | Excludes matches. Reliable for filtering noise. |
 
-**Avoid:** `NEAR` (unreliable), `NOT` (counterintuitive), single broad terms (too many hits).
+**Avoid:** `NEAR` (unreliable — matches "near" as a regular term), single broad terms (too many hits).
 
 ## Anti-rationalization
 
 | Don't | Do |
 |---|---|
-| `get` on a root slug | `toc --depth 1` to find the right section, then `get` leaves |
+| `get` on a root or internal slug | `toc --depth 1` to find the right section, then `get` leaves |
 | `NEAR` expecting proximity | `AND` with smaller result sets |
 | `toc --depth full` on large KB | Increment depth: 1, then 2, then target specific slugs |
 | Parse YAML output programmatically | Parse XML from `get` -- structured and stable |
 | Skip `manifest` and go to `search` | Always read `manifest` first to understand KB scope |
-| Search single broad terms like "component" | Combine: `component AND render`, use `--limit 3` |
-| Pipe full search output into context | Save to file, extract slugs with `grep`, then `get` |
+| Search single broad terms | Combine: `term1 AND term2`, use `--limit 3-5` |
+| Assume home TOC is always useful | Check `toc --depth 1`; if flat (1-2 children), use search-driven strategy |
+| `get` a section to see its children | `toc <slug> --depth 1` — ~11x smaller than `get` |
 
 ## Common pitfalls
 
 1. **Terminology mismatch** -- summaries may paraphrase source terms. Search the chunk content, not summary vocabulary.
 2. **Token budget** -- `get` on large documents returns full subtrees as XML. Use `toc` with depth limits to scout first.
-3. **Broad searches** -- single-term searches return thousands of hits. Combine with `AND` and use `--limit`.
-4. **Search output size** -- `search` returns snippet excerpts (~30 tokens) per hit. Output still grows with result count. Use `--limit` to control it.
-5. **Phrase search with special characters** -- dots, underscores in phrases often fail. Use space-separated terms instead.
+3. **`get` vs `toc` ratio** -- `get` on an internal node returns ~11x more data than `toc --depth 2` on the same node. Use `toc` for structure, then `get` leaves.
+4. **Broad searches** -- single-term searches return too many hits. Combine with `AND` and use `--limit`.
+5. **Flat home files** -- not all KBs have useful home files. Check `toc --depth 1`; if flat (1-2 children), rely on search.
+6. **Phrase search with special characters** -- dots, underscores in phrases often fail. Use space-separated terms or `title:` search instead.
