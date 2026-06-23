@@ -178,6 +178,9 @@ function rewriteLinksInTree(
 
 /** Recursively insert a Markdown heading node and its children.
  *
+ * Synthetic "Introduction" nodes (marked isSynthetic) derive their slug
+ * from the parent slug: <parent-slug>-introduction.
+ *
  * @param baseIdx - Index offset to avoid collision with the parent file node.
  *                  Sections use baseIdx + mdNode.index so they don't overlap
  *                  with the file node's own idx under the same parent_slug.
@@ -192,7 +195,9 @@ function insertMDNode(
   baseIdx: number = 0,
 ): void {
   const adjustedIdx = baseIdx + mdNode.index;
-  const desiredSlug = toSlug(mdNode.title) || `_${adjustedIdx}`;
+  const desiredSlug = mdNode.isSynthetic
+    ? `${parentSlug}-introduction`
+    : (toSlug(mdNode.title) || `_${adjustedIdx}`);
   const slug = resolveCollision(desiredSlug, parentSlug, adjustedIdx, existsStmt);
 
   insertNode.run({

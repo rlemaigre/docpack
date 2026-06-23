@@ -6,6 +6,7 @@ const HEADING_RE = /^(#{1,6})\x20+(\S[^\n]*)$/;
  *
  * One shape for all nodes - file root, sections, leaves.
  * The chunk field holds the node's self content only (not aggregated from children).
+ * isSynthetic marks auto-generated "Introduction" nodes created by applyIntro().
  */
 export interface MDNode {
   title: string;
@@ -13,10 +14,12 @@ export interface MDNode {
   parent: MDNode | null;
   children: MDNode[];
   index: number;
+  isSynthetic?: boolean;
 }
 
 /**
- * Parse Markdown headings into a tree of MDNode nodes.
+ * Parse Markdown headings into a tree of MDNode nodes, then apply
+ * the synthetic Introduction transformation.
  *
  * Scans line-by-line with fenced code block awareness. No full Markdown parser
  * is used — real-world Markdown often has minor syntax issues and full parsers
@@ -27,6 +30,9 @@ export interface MDNode {
  * - Preamble exists -> root = file node (title from filename, chunk = preamble).
  * - No headings at all -> root = file node (title from filename, chunk = all content).
  *
+ * After parsing, applyIntro() moves any node's chunk into a synthetic
+ * "Introduction" child when the node also has children.
+ *
  * @param filename - Basename used as fallback title when no h1 promotes to root.
  * @param markdown - Raw Markdown string read from the file.
  * @returns Root MDNode representing the file or top-level heading.
@@ -36,8 +42,10 @@ export function walkMD(filename: string, markdown: string): MDNode {
   const root = createRootNode(title);
 
   const result = scanLines(markdown, root);
+  const promoted = applyH1Promotion(root, result.hasH1);
 
-  return applyH1Promotion(root, result.hasH1);
+  applyIntro(promoted);
+  return promoted;
 }
 
 // ---------------------------------------------------------------------------
@@ -176,8 +184,9 @@ function attachHeading(
 
 /** Flush accumulated chunk lines to the current node. */
 function flushChunk(node: MDNode, lines: string[]): void {
-  if (lines.length > 0) {
-    node.chunk = lines.join("\n").trim();
+  const text = lines.join("\n").trim();
+  if (text) {
+    node.chunk = text;
   }
 }
 
@@ -210,4 +219,38 @@ function applyH1Promotion(root: MDNode, hasH1: boolean): MDNode {
   root.children.forEach((child, i) => { child.index = i; });
 
   return root;
+}
+
+// ---------------------------------------------------------------------------
+// Synthetic Introduction
+// ---------------------------------------------------------------------------
+
+/**
+ * Recursively move a node's chunk into a synthetic "Introduction" child
+ * when the node has both a non-empty chunk AND non-empty children.
+ *
+ * After transformation, every chunk lives in a leaf document.
+ * Internal nodes (containers) have chunk === null.
+ */
+function applyIntro(node: MDNode): void {
+  if (node.chunk && node.children.length > 0) {
+    const intro: MDNode = {
+      title: "Introduction",
+      chunk: node.chunk,
+      parent: node,
+      children: [],
+      index: 0,
+      isSynthetic: true,
+    };
+
+    node.chunk = null;
+
+    // Reindex existing children and prepend intro
+    node.children.forEach((child, i) => { child.index = i + 1; });
+    node.children.unshift(intro);
+  }
+
+  for (const child of node.children) {
+    applyIntro(child);
+  }
 }

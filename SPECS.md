@@ -148,9 +148,9 @@ Document = { type : "file" | "section", title : string, slug : string, index : n
 * `title` — human-readable label.
 * `slug` — globally unique identifier.
 * `index` — position among siblings. Assigned by the bundler (filesystem sort order or heading order).
-* `chunk` — *self content* of the document only, does NOT aggregate the whole subtree. Optional (e.g. file documents with no content before the first heading).
+* `chunk` — *self content* of the document only, does NOT aggregate the whole subtree. Present only on leaf documents. Internal nodes (documents with children) always have `chunk: null` — their preamble content is stored in a synthetic "Introduction" child section.
 * `summary` — AI-generated summary of the entire subtree (chunk + all descendants). Optional. Produced by post-processing.
-* `children` — always present. Empty `[]` = leaf.
+* `children` — always present. Empty `[]` = leaf. Non-empty = internal node (container, `chunk` is null).
 
 The `Document` shape is uniform across all levels — a file, a section, and a leaf section all share the same structure.
 
@@ -168,6 +168,7 @@ Cross-file navigation is achieved through `docpack://slug` links rewritten by th
 * Uses `@sindresorhus/slugify` for heading text → slug.
 * File documents: slug from basename (without extension).
 * Section documents: slug from heading text.
+* Synthetic "Introduction" sections: `<parent-slug>-introduction` (e.g. `readme-introduction`, `api-auth-introduction`).
 * Empty slug (e.g. CJK, punctuation-only): fallback to `_N` where N is the document's index.
 * Cross-file collisions: with no directory nodes, colliding basenames are disambiguated using the original relative path components. E.g. two `README.md` files at `guide/README.md` and `api/README.md` get slugs `guide-readme` and `api-readme`. If that still collides, fall back to `_N`.
 * Section collisions: prefix the conflicting slug with its parent slug until globally unique.
@@ -185,9 +186,10 @@ The bundler recursively walks the input directory and reads every file as **Mark
 ## Markdown Parsing
 
 * **Headings** — ATX only (`#` through `######`). Regex: `^(#{1,6})\s+(.+)$`.
-* **Content before first heading** — becomes self content of the file document itself.
-* **Zero headings** — single chunk: file document with content, no children.
+* **Content before first heading** — parsed as the file document's self content, then moved into a synthetic "Introduction" section if the file also has headings.
+* **Zero headings** — single chunk: file document with content, no children. Unchanged.
 * **Content between headings** — becomes chunk content for that heading's document. For nested headings (e.g. `## A` followed by `### B`), content between `## A` and `### B` belongs to the `A` document.
+* **Synthetic Introduction** — after parsing, any document (file, section, or subsection) that has both a non-empty chunk AND non-empty children gets its chunk moved into a synthetic "Introduction" section as the first child. Applied recursively. Result: all chunks live in leaf documents; internal nodes always have `chunk: null`.
 
 ## Link Rewriting
 
@@ -511,7 +513,7 @@ kb.search(params);    // SearchResults
 * `manifest()` — reads `docpack.yaml`. Returns version, aggregate statistics, and metadata fields (`home`, `description`, `url`, `exportedAt`). Compact — no file enumeration.
 * `toc(slug, depth)` — returns the hierarchy rooted at `slug`. `depth` is a number (levels to unfold, `0` = root only) or `'full'` (full tree, no clipping). Clipped subtrees carry `Summary` for semantic discovery.
 * `get(slug)` — returns the document and its subtree. Returns `null` if the slug does not exist.
-* `search(params)` — full-text search over node titles and chunk content using SQLite FTS5. `query` accepts the full FTS5 query language (plain words, phrases, AND/OR/NOT, prefix, NEAR, column-specific). Results ordered by BM25 score. Each hit carries a `snippet` excerpt (~30 tokens around matched terms with `<b>`/`</b>` markers), `prev`/`next` sibling navigation slugs (sections only), and `parent` slug. Full content is available via `get(slug)`. `limit` and `offset` are required. `total` gives the full result set size.
+* `search(params)` — full-text search over node titles and chunk content using SQLite FTS5. `query` accepts the full FTS5 query language (plain words, phrases, AND/OR/NOT, prefix, NEAR, column-specific). Results ordered by BM25 score. Each hit carries a `snippet` excerpt (~30 tokens around matched terms with `<b>`/`</b>` markers), `prev`/`next` sibling navigation slugs (sections only), and `parent` slug. Hits are always leaf documents (depth 0) because FTS indexes chunks, and all chunks live in leaf documents. Full content is available via `get(slug)` — a single-row lookup. `limit` and `offset` are required. `total` gives the full result set size.
 * `parent`, `prev`, `next` on any `Document` — navigation slugs derived from structure. `parent` is present on all non-root documents. `prev`/`next` present only on sections (ordered children of a file). Absent when not applicable.
 * `Summary` merges structural stats and semantic text. On clipped TOC documents, aggregating summaries across branches lets the agent reconstruct a transversal overview of the entire tree — making TOC the primary semantic discovery tool.
 * `get()` omits `Summary` because the agent already obtained it when navigating via `manifest()` or `toc()` to discover the target slug in the first place.
