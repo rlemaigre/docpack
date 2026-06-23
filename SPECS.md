@@ -148,9 +148,9 @@ Document = { type : "file" | "section", title : string, slug : string, index : n
 * `title` — human-readable label.
 * `slug` — globally unique identifier.
 * `index` — position among siblings. Assigned by the bundler (filesystem sort order or heading order).
-* `chunk` — *self content* of the document only, does NOT aggregate the whole subtree. Optional (e.g. file documents with no content before the first heading).
+* `chunk` — *self content* of the document only, does NOT aggregate the whole subtree. Present only on leaf documents. Internal nodes (documents with children) always have `chunk: null` — their preamble content is stored in a synthetic "Introduction" child section.
 * `summary` — AI-generated summary of the entire subtree (chunk + all descendants). Optional. Produced by post-processing.
-* `children` — always present. Empty `[]` = leaf.
+* `children` — always present. Empty `[]` = leaf. Non-empty = internal node (container, `chunk` is null).
 
 The `Document` shape is uniform across all levels — a file, a section, and a leaf section all share the same structure.
 
@@ -168,6 +168,7 @@ Cross-file navigation is achieved through `docpack://slug` links rewritten by th
 * Uses `@sindresorhus/slugify` for heading text → slug.
 * File documents: slug from basename (without extension).
 * Section documents: slug from heading text.
+* Synthetic "Introduction" sections: `<parent-slug>-introduction` (e.g. `readme-introduction`, `api-auth-introduction`).
 * Empty slug (e.g. CJK, punctuation-only): fallback to `_N` where N is the document's index.
 * Cross-file collisions: with no directory nodes, colliding basenames are disambiguated using the original relative path components. E.g. two `README.md` files at `guide/README.md` and `api/README.md` get slugs `guide-readme` and `api-readme`. If that still collides, fall back to `_N`.
 * Section collisions: prefix the conflicting slug with its parent slug until globally unique.
@@ -185,9 +186,10 @@ The bundler recursively walks the input directory and reads every file as **Mark
 ## Markdown Parsing
 
 * **Headings** — ATX only (`#` through `######`). Regex: `^(#{1,6})\s+(.+)$`.
-* **Content before first heading** — becomes self content of the file document itself.
-* **Zero headings** — single chunk: file document with content, no children.
+* **Content before first heading** — parsed as the file document's self content, then moved into a synthetic "Introduction" section if the file also has headings.
+* **Zero headings** — single chunk: file document with content, no children. Unchanged.
 * **Content between headings** — becomes chunk content for that heading's document. For nested headings (e.g. `## A` followed by `### B`), content between `## A` and `### B` belongs to the `A` document.
+* **Synthetic Introduction** — after parsing, any document (file, section, or subsection) that has both a non-empty chunk AND non-empty children gets its chunk moved into a synthetic "Introduction" section as the first child. Applied recursively. Result: all chunks live in leaf documents; internal nodes always have `chunk: null`.
 
 ## Link Rewriting
 
@@ -378,7 +380,7 @@ summarize(options);
 |---|---|
 | `{title}` | Document's own title. |
 | `{slug}` | Document's own slug. |
-| `{chunk}` | Document's own content (markdown). |
+| `{chunk}` | Document's own content (markdown). Always empty for internal nodes (their content lives in the synthetic Introduction child). |
 | `{children_titles}` | Ordered list of children titles, one per line. |
 | `{children_summaries}` | Ordered list of `title: summary` pairs, one per line. |
 | `{children_count}` | Number of children. |
@@ -511,7 +513,7 @@ kb.search(params);    // SearchResults
 * `manifest()` — reads `docpack.yaml`. Returns version, aggregate statistics, and metadata fields (`home`, `description`, `url`, `exportedAt`). Compact — no file enumeration.
 * `toc(slug, depth)` — returns the hierarchy rooted at `slug`. `depth` is a number (levels to unfold, `0` = root only) or `'full'` (full tree, no clipping). Clipped subtrees carry `Summary` for semantic discovery.
 * `get(slug)` — returns the document and its subtree. Returns `null` if the slug does not exist.
-* `search(params)` — full-text search over node titles and chunk content using SQLite FTS5. `query` accepts the full FTS5 query language (plain words, phrases, AND/OR/NOT, prefix, NEAR, column-specific). Results ordered by BM25 score. Each hit carries a `snippet` excerpt (~30 tokens around matched terms with `<b>`/`</b>` markers), `prev`/`next` sibling navigation slugs (sections only), and `parent` slug. Full content is available via `get(slug)`. `limit` and `offset` are required. `total` gives the full result set size.
+* `search(params)` — full-text search over node titles and chunk content using SQLite FTS5. `query` accepts the full FTS5 query language (plain words, phrases, AND/OR/NOT, prefix, NEAR, column-specific). Results ordered by BM25 score. Each hit carries a `snippet` excerpt (~30 tokens around matched terms with `<b>`/`</b>` markers), `prev`/`next` sibling navigation slugs (sections only), and `parent` slug. FTS indexes only leaf documents — internal nodes (containers with children) are excluded. All hits are guaranteed to be leaves, so `get(slug)` is always a single-row lookup. Structure navigation is via `toc()`, not search. `limit` and `offset` are required. `total` gives the full result set size.
 * `parent`, `prev`, `next` on any `Document` — navigation slugs derived from structure. `parent` is present on all non-root documents. `prev`/`next` present only on sections (ordered children of a file). Absent when not applicable.
 * `Summary` merges structural stats and semantic text. On clipped TOC documents, aggregating summaries across branches lets the agent reconstruct a transversal overview of the entire tree — making TOC the primary semantic discovery tool.
 * `get()` omits `Summary` because the agent already obtained it when navigating via `manifest()` or `toc()` to discover the target slug in the first place.
@@ -612,6 +614,14 @@ CREATE TABLE relationship_params (
 CREATE INDEX idx_rel_params_slug ON relationship_params(slug);
 ```
 
+# Breaking Changes
+
+## Synthetic Introduction sections (v0.6.0)
+
+File documents that previously had preamble content (chunk) now have `chunk: null` and a synthetic "Introduction" child section. Agents using `get("<file-slug>")` will see an empty chunk instead of preamble text. The content is at `get("<file-slug>-introduction")`.
+
+Existing `docpack://<file-slug>` links in home files still resolve to the file document (container). Agents must navigate to the introduction child for content.
+
 # Future
 
 ## Knowledge Graph
@@ -625,6 +635,13 @@ Relationships lay the groundwork for a knowledge graph: documents reference each
 * **Web UI** — `docpack serve ./mykb --ui` spins up a local web app for browsing, searching, and exploring the knowledge base. Browser-based TOC navigation, FTS search, graph visualization when embeddings and relationships are available.
 * **Incremental updates** — track file modification times to detect changes. Enable `--watch` mode or manual `docpack update` for incremental KB rebuilds. KB lives in a `.docpack/` folder at document root (like `.git`), updating automatically on file changes or on demand.
 * **AI-authored documents** — agents can create new Markdown files in an `ai/` directory alongside `docpack.db` and `docpack.yaml`. An incremental re-bundle ingests these into the KB, and a post-processing step computes bidirectional relationships between AI-authored and source documents. Example: an agent reading a novel creates one document per character in `ai/characters/`. Each chapter relates to the characters that appear in it; each character document relates back to the chapters they appear in. This lets agents autonomously build and evolve layered knowledge on top of source material.
+* **Merge summaries into chunks (TBD)** — after the synthetic Introduction change, internal nodes always have `chunk: null`. Proposal: store AI-generated subtree summaries in the `chunk` field of internal nodes instead of the separate `summary` column. Leaf nodes keep author content in `chunk` as before. Drop the `summary` column entirely.
+
+  **Benefits:** one fewer column, summaries get FTS treatment automatically, `get(slug)` on any node returns useful text (content or summary). No API surface changes — `type` distinguishes leaves (author content) from internal nodes (AI summaries).
+
+  **Trade-offs:** internal chunks are null before summarize runs (same as current `summary` behavior). Search results mix author content and AI summaries — agents must check node type/children to distinguish. Semantic shift: `chunk` means "self content" on leaves but "subtree summary" on internal nodes.
+
+  **Open questions:** should summaries be excluded from search by default and opt-in? How to flag AI-generated vs author content in search snippets? Does the summarize prompt need to change since output goes into `chunk` instead of `summary`?
 
 ## Known Issues
 

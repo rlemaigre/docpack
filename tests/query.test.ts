@@ -205,10 +205,15 @@ describe("query", () => {
       setupKB();
       const kb = query(outputDir);
       try {
-        // Get the readme file
+        // File document is a container (chunk = null)
         const readmeDoc = kb.get("readme");
         expect(readmeDoc).not.toBeNull();
-        expect(readmeDoc!.chunk).toContain("Intro text");
+        expect(readmeDoc!.chunk).toBeUndefined();
+
+        // Content lives in the synthetic Introduction section
+        const introDoc = kb.get("readme-introduction");
+        expect(introDoc).not.toBeNull();
+        expect(introDoc!.chunk).toContain("Intro text");
       } finally {
         kb.close();
       }

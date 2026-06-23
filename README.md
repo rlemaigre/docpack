@@ -124,7 +124,7 @@ All ingested files are root documents — directory structure is discarded. Two 
 - **file** -- ingested Markdown document, root document, may contain sections
 - **section** -- Markdown heading, child of a file, may contain subsections
 
-Every `Document` has a `slug` (globally unique), `title`, `chunk` (self content), and `children`. The same `Document` shape applies at every level — files, sections, and leaves are all documents. Cross-file navigation uses `docpack://slug` links rewritten by the bundler.
+Every `Document` has a `slug` (globally unique), `title`, `chunk` (self content), and `children`. The same `Document` shape applies at every level — files, sections, and leaves are all documents. `chunk` is present only on leaf documents — internal nodes (documents with children) store their preamble content in a synthetic "Introduction" child section. Cross-file navigation uses `docpack://slug` links rewritten by the bundler.
 
 ## CLI reference
 
@@ -191,7 +191,7 @@ Returns XML with the document's chunk and its full subtree. Attributes include `
 docpack search <kb> "query" [--limit N] [--offset O]
 ```
 
-FTS5 full-text search over titles and chunk content. Query language supports:
+FTS5 full-text search over titles and chunk content. Only leaf documents are indexed — internal nodes (containers with children) are excluded, so every hit is a leaf and `get(slug)` is always a single-row lookup. Query language supports:
 
 - Plain words: `authentication`
 - Phrases: `"DataWindow painter"`
@@ -231,12 +231,12 @@ docpack summarize ./mykb \
   --min-content-length 200
 ```
 
-Docpack traverses the document tree bottom-up, level by level. At each document it fills the prompt template with the document's content and its children's summaries, then sends a `POST /chat/completions` request. Parents always wait for all children to finish — siblings at the same depth are processed in parallel (bounded by `--concurrency`).
+Docpack traverses the document tree bottom-up, level by level. At each document it fills the prompt template with the document's content (if any) and its children's summaries, then sends a `POST /chat/completions` request. Parents always wait for all children to finish — siblings at the same depth are processed in parallel (bounded by `--concurrency`). Internal nodes have no self content (chunk is null) — their preamble lives in the synthetic Introduction child.
 
 **Tree folding algorithm:**
 
 1. Find all leaf documents (no children). Process them in parallel.
-2. Move up one level. For each parent, fill the prompt template with its chunk + children summaries. Process in parallel.
+2. Move up one level. For each parent, fill the prompt template with its children summaries (internal nodes have no self chunk). Process in parallel.
 3. Repeat until the root is reached.
 
 **Prompt template variables:**
@@ -245,7 +245,7 @@ Docpack traverses the document tree bottom-up, level by level. At each document 
 |---|---|
 | `{title}` | Document's own title |
 | `{slug}` | Document's own slug |
-| `{chunk}` | Document's own content (Markdown). |
+| `{chunk}` | Document's own content (Markdown). Empty for internal nodes. |
 | `{children_titles}` | Ordered list of children titles, one per line |
 | `{children_summaries}` | Ordered list of `title: summary` pairs, one per line |
 | `{children_count}` | Number of children |
@@ -402,13 +402,13 @@ Document = {
   title: string,
   slug: string,
   index: number,
-  chunk: string?,      // self content (Markdown)
+  chunk: string?,      // self content (Markdown) — present only on leaf documents
   summary: string?,    // subtree overview
-  children: Document[] | Summary
+  children: Document[]
 }
 ```
 
-The `Document` shape is uniform across all levels — a file, a section, and a leaf section all share the same structure.
+The `Document` shape is uniform across all levels — a file, a section, and a leaf section all share the same structure. Internal nodes (documents with children) always have `chunk: null` — their preamble content is stored in a synthetic "Introduction" child section.
 
 ### Summary
 
@@ -425,8 +425,8 @@ Summary = {
 
 SQLite with FTS5. Schema is an internal detail and may change.
 
-- `nodes` -- document tree with slug, type, title, parent, chunk, summary
-- `nodes_fts` -- FTS5 index on title and chunk
+- `nodes` -- document tree with slug, type, title, parent, chunk (leaf-only), summary
+- `nodes_fts` -- FTS5 index on title and chunk (leaf nodes only)
 - `closure` -- materialized transitive closure for subtree queries
 
 ## Notes

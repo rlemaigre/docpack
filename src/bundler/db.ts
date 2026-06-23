@@ -178,6 +178,9 @@ function rewriteLinksInTree(
 
 /** Recursively insert a Markdown heading node and its children.
  *
+ * Synthetic "Introduction" nodes (marked isSynthetic) derive their slug
+ * from the parent slug: <parent-slug>-introduction.
+ *
  * @param baseIdx - Index offset to avoid collision with the parent file node.
  *                  Sections use baseIdx + mdNode.index so they don't overlap
  *                  with the file node's own idx under the same parent_slug.
@@ -192,7 +195,9 @@ function insertMDNode(
   baseIdx: number = 0,
 ): void {
   const adjustedIdx = baseIdx + mdNode.index;
-  const desiredSlug = toSlug(mdNode.title) || `_${adjustedIdx}`;
+  const desiredSlug = mdNode.isSynthetic
+    ? `${parentSlug}-introduction`
+    : (toSlug(mdNode.title) || `_${adjustedIdx}`);
   const slug = resolveCollision(desiredSlug, parentSlug, adjustedIdx, existsStmt);
 
   insertNode.run({
@@ -310,10 +315,16 @@ function buildClosureTable(db: Database): void {
   `);
 }
 
-/** Sync FTS5 contentless table with nodes data. */
+/** Sync FTS5 contentless table with leaf nodes only.
+ *
+ * Internal nodes (containers with children) are excluded so that
+ * all search hits are guaranteed to be leaves — get(slug) is always
+ * a single-row lookup.
+ */
 function syncFTS5(db: Database): void {
   db.exec(`
     INSERT INTO nodes_fts(rowid, title, chunk)
     SELECT rowid, title, chunk FROM nodes
+    WHERE slug NOT IN (SELECT DISTINCT parent_slug FROM nodes WHERE parent_slug IS NOT NULL)
   `);
 }
