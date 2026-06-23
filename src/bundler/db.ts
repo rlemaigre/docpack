@@ -315,10 +315,16 @@ function buildClosureTable(db: Database): void {
   `);
 }
 
-/** Sync FTS5 contentless table with nodes data. */
+/** Sync FTS5 contentless table with leaf nodes only.
+ *
+ * Internal nodes (containers with children) are excluded so that
+ * all search hits are guaranteed to be leaves — get(slug) is always
+ * a single-row lookup.
+ */
 function syncFTS5(db: Database): void {
   db.exec(`
     INSERT INTO nodes_fts(rowid, title, chunk)
     SELECT rowid, title, chunk FROM nodes
+    WHERE slug NOT IN (SELECT DISTINCT parent_slug FROM nodes WHERE parent_slug IS NOT NULL)
   `);
 }

@@ -191,7 +191,7 @@ Returns XML with the document's chunk and its full subtree. Attributes include `
 docpack search <kb> "query" [--limit N] [--offset O]
 ```
 
-FTS5 full-text search over titles and chunk content. Query language supports:
+FTS5 full-text search over titles and chunk content. Only leaf documents are indexed — internal nodes (containers with children) are excluded, so every hit is a leaf and `get(slug)` is always a single-row lookup. Query language supports:
 
 - Plain words: `authentication`
 - Phrases: `"DataWindow painter"`
@@ -426,7 +426,7 @@ Summary = {
 SQLite with FTS5. Schema is an internal detail and may change.
 
 - `nodes` -- document tree with slug, type, title, parent, chunk (leaf-only), summary
-- `nodes_fts` -- FTS5 index on title and chunk
+- `nodes_fts` -- FTS5 index on title and chunk (leaf nodes only)
 - `closure` -- materialized transitive closure for subtree queries
 
 ## Notes
