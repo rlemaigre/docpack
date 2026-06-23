@@ -93,17 +93,18 @@ function registerGetTool(
   server.registerTool(
     "get",
     {
-      description: "Get a document and its subtree as XML.",
+      description: "Get one or more documents and their subtrees as XML.",
       inputSchema: {
-        slug: z.string().describe("Document slug"),
+        slug: z.union([z.string(), z.array(z.string())]).describe("Document slug or array of slugs"),
       },
     },
-    (args: { slug: string }) => {
-      const doc = kb.get(args.slug);
-      if (!doc) {
-        return { content: [{ type: "text", text: `Slug not found: ${args.slug}` }], isError: true };
+    (args: { slug: string | string[] }) => {
+      const slugs = Array.isArray(args.slug) ? args.slug : [args.slug];
+      const docs = kb.get(slugs);
+      if (docs.length === 0) {
+        return { content: [{ type: "text", text: `No slugs found: ${slugs.join(", ")}` }], isError: true };
       }
-      return { content: [{ type: "text", text: formatXml(doc) }] };
+      return { content: [{ type: "text", text: formatXml(...docs) }] };
     },
   );
 }

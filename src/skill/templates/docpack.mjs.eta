@@ -7,7 +7,7 @@
  * Usage:
  *   node docpack.mjs manifest
  *   node docpack.mjs toc <slug> [--depth <n|full>]
- *   node docpack.mjs get <slug>
+ *   node docpack.mjs get --slug <slug> [--slug <slug>]
  *   node docpack.mjs search <query> [--limit <n>] [--offset <n>]
  */
 
@@ -57,7 +57,7 @@ switch (command) {
   case "get":
     const getSlug = positional[1];
     if (!getSlug) { process.stderr.write("error: missing slug\n"); process.exit(1); }
-    run(`get "${KB}" "${getSlug}"`);
+    run(`get "${KB}" --slug "${getSlug}"`);
     break;
   case "search":
     const query = positional[1];

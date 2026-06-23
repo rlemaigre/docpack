@@ -45,6 +45,8 @@ describe("cli format integration", () => {
 
       const xml = formatXml(doc!);
       expect(xml).toContain('<?xml version="1.0" encoding="UTF-8"?>');
+      expect(xml).toContain("<documents>");
+      expect(xml).toContain("</documents>");
       expect(xml).toContain("<document");
       expect(xml).toContain("</document>");
       expect(xml).toContain("slug=");

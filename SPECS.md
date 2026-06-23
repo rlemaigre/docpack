@@ -128,7 +128,7 @@ The generated skill is a self-contained directory:
 
 * `SKILL.md` — auto-generated from manifest metadata + home TOC (depth 1) + `--use-when` text, rendered via Eta template (`src/skill/templates/skill.md.eta`). Contains frontmatter (`name`, `description`), KB overview section, structure section, and usage section with CLI commands.
 * `references/` — the KB directory (`docpack.db` + `docpack.yaml`).
-* `scripts/docpack.mjs` — thin wrapper script (~1KB) that pins `npx @rlemaigre/docpack@<version>` using the version from package.json at generation time. Resolves `references/` path relative to `import.meta.dirname`. Accepts subcommands via CLI args: `manifest`, `toc <slug> [--depth <n|full>]`, `get <slug>`, `search <query> [--limit <n>] [--offset <n>]`.
+* `scripts/docpack.mjs` — thin wrapper script (~1KB) that pins `npx @rlemaigre/docpack@<version>` using the version from package.json at generation time. Resolves `references/` path relative to `import.meta.dirname`. Accepts subcommands via CLI args: `manifest`, `toc <slug> [--depth <n|full>]`, `get --slug <slug> [--slug <slug>]`, `search <query> [--limit <n>] [--offset <n>]`.
 
 The generated skill is self-contained. Any agent loading it can query the KB using the bundled `scripts/docpack.mjs` wrapper without needing the higher-order skill or docpack source code.
 
@@ -200,7 +200,7 @@ During bundling, relative Markdown links that resolve to ingested files are rewr
 * `[](path/to/file)` → resolves if `path/to/file.md` exists
 * External URLs, fragment-only links (`[](#heading)`), and broken links are left unchanged
 
-An LLM reading a chunk can resolve `docpack://slug` directly via `docpack get <slug>`. Broken links left as-is signal that resolution will fail.
+An LLM reading a chunk can resolve `docpack://slug` directly via `docpack get --slug <slug>`. Broken links left as-is signal that resolution will fail.
 
 ## Output — Chunk Content
 
@@ -208,20 +208,23 @@ Individual chunk content is Markdown. Stored as TEXT in the knowledge base (`chu
 
 ## Output — XML
 
-`get()` returns a typed `Document` tree. The CLI serializes it to XML on stdout.
+`get()` returns a typed `Document` tree. The CLI serializes it to XML on stdout,
+always wrapped in a `<documents>` root element containing one or more `<document>` elements.
 
-### document
+### documents
 
 ```
-<document slug="..." title="..." level="N" depth="N" parent="..." prev="..." next="...">
-  <chunk>...</chunk>              <!-- optional: Markdown self-content -->
-  <children> <!-- zero or more child document elements -->
-    <document>...</document>
-    <document>...</document>
-  </children>
-</document>
+<documents>
+  <document slug="..." title="..." level="N" depth="N" parent="..." prev="..." next="...">
+    <chunk>...</chunk>              <!-- optional: Markdown self-content -->
+    <children> <!-- zero or more child document elements -->
+      <document>...</document>
+    </children>
+  </document>
+</documents>
 ```
 
+* `<documents>` — root element. Contains one `<document>` per requested slug.
 * `<chunk>` — optional. Markdown self-content. Absent for documents without content.
 * `<children>` — zero or more child `<document>` elements. Empty for leaf documents. Children have semantic ordering (heading order within a file).
 * `parent` — optional. Slug of the parent document. Absent for root documents.
@@ -234,36 +237,43 @@ Individual chunk content is Markdown. Stored as TEXT in the knowledge base (`chu
 
 ### Examples
 
-Leaf section (`get("api-auth")`):
+Leaf section (`get --slug api-auth`):
 ```xml
-<document slug="api-auth" title="Authentication" level="2" depth="0" parent="api" prev="api-overview" next="api-billing">
-  <chunk>
+<documents>
+  <document slug="api-auth" title="Authentication" level="2" depth="0" parent="api" prev="api-overview" next="api-billing">
+    <chunk>
 # Authentication
 
 OAuth details...
-  </chunk>
-</document>
+    </chunk>
+    <children/>
+  </document>
+</documents>
 ```
 
-Internal document (`get("readme")`):
+Internal document (`get --slug readme`):
 ```xml
-<document slug="readme" title="README" level="0" depth="2">
-  <chunk>
+<documents>
+  <document slug="readme" title="README" level="0" depth="2">
+    <chunk>
 Intro text...
-  </chunk>
-  <children>
+    </chunk>
+    <children>
     <document slug="getting-started" title="Getting Started" level="1" depth="1" parent="readme">
       <chunk>
 Getting started content...
       </chunk>
+      <children/>
     </document>
     <document slug="api-reference" title="API Reference" level="1" depth="1" parent="readme">
       <chunk>
 API reference content...
       </chunk>
+      <children/>
     </document>
-  </children>
-</document>
+    </children>
+  </document>
+</documents>
 ```
 
 # API — Bundler
@@ -311,7 +321,7 @@ Produce a self-contained agent skill package from an existing KB.
 import { generateSkill } from "@rlemaigre/docpack";
 
 interface GenerateSkillOptions {
-  input: string;              // path to KB directory (resolves docpack.db)
+  kb: string;                 // path to KB directory (resolves docpack.db)
   useWhen: string;            // imperative description of when to use the skill
   output: string;             // path to output skill directory
 }
@@ -506,13 +516,14 @@ const kb = query("./mykb");  // path is the directory containing docpack.db and 
 
 kb.manifest();                    // Manifest — reads docpack.yaml
 kb.toc("slug", depth);            // TOC — depth is number | 'full'
-kb.get("slug");                   // Document | null
+kb.get("slug");                   // Document | null — single slug
+kb.get(["slug1", "slug2"]);       // Document[] — multiple slugs, missing ones skipped
 kb.search(params);    // SearchResults
 ```
 
 * `manifest()` — reads `docpack.yaml`. Returns version, aggregate statistics, and metadata fields (`home`, `description`, `url`, `exportedAt`). Compact — no file enumeration.
 * `toc(slug, depth)` — returns the hierarchy rooted at `slug`. `depth` is a number (levels to unfold, `0` = root only) or `'full'` (full tree, no clipping). Clipped subtrees carry `Summary` for semantic discovery.
-* `get(slug)` — returns the document and its subtree. Returns `null` if the slug does not exist.
+* `get(slug)` — returns the document and its subtree. Returns `null` if the slug does not exist. `get([slug1, slug2, ...])` fetches multiple documents at once, skipping missing slugs.
 * `search(params)` — full-text search over node titles and chunk content using SQLite FTS5. `query` accepts the full FTS5 query language (plain words, phrases, AND/OR/NOT, prefix, NEAR, column-specific). Results ordered by BM25 score. Each hit carries a `snippet` excerpt (~30 tokens around matched terms with `<b>`/`</b>` markers), `prev`/`next` sibling navigation slugs (sections only), and `parent` slug. FTS indexes only leaf documents — internal nodes (containers with children) are excluded. All hits are guaranteed to be leaves, so `get(slug)` is always a single-row lookup. Structure navigation is via `toc()`, not search. `limit` and `offset` are required. `total` gives the full result set size.
 * `parent`, `prev`, `next` on any `Document` — navigation slugs derived from structure. `parent` is present on all non-root documents. `prev`/`next` present only on sections (ordered children of a file). Absent when not applicable.
 * `Summary` merges structural stats and semantic text. On clipped TOC documents, aggregating summaries across branches lets the agent reconstruct a transversal overview of the entire tree — making TOC the primary semantic discovery tool.
@@ -525,11 +536,11 @@ Wraps the TypeScript library. Single-shot: reads args, calls TypeScript library,
 ```bash
 docpack manifest ./mykb              # YAML to stdout (reads docpack.yaml)
 docpack toc ./mykb "slug" --depth 2  # YAML to stdout
-docpack get ./mykb "slug"            # XML to stdout
+docpack get ./mykb --slug slug1 --slug slug2  # XML to stdout, <documents> wrapper
 docpack search ./mykb "query" --limit 10 --offset 0  # YAML to stdout
 ```
 
-* Exit 0 — success. Result to stdout (YAML for `manifest`/`toc`, XML for `get`).
+* Exit 0 — success. Result to stdout (YAML for `manifest`/`toc`, XML with `<documents>` wrapper for `get`).
 * Exit 1 — error. JSON `{ message }` to stderr. Nothing to stdout.
 * Primary consumer is AI agents, not terminal readers.
 * On clipped documents, `children` is a `Summary` (replaces the removed subtree). The agent can aggregate summaries across branches to reconstruct a transversal overview.
@@ -559,7 +570,7 @@ docpack serve ./mykb --mcp    # MCP server over stdio
 Exposed tools:
 * `manifest` — returns the KB manifest.
 * `toc(slug, depth)` — returns the table of contents subtree.
-* `get(slug)` — returns the document content as XML.
+* `get(slug)` — slug is `string` or `string[]`. Returns document(s) as XML with `<documents>` wrapper.
 * `search(query, limit, offset)` — full-text search, returns hits with snippet excerpts and navigation.
 
 # Storage — SQLite
@@ -615,6 +626,10 @@ CREATE INDEX idx_rel_params_slug ON relationship_params(slug);
 ```
 
 # Breaking Changes
+
+## get() CLI output format (TBD)
+
+CLI `get` command output changed from a bare `<document>` root to a `<documents>` wrapper containing one or more `<document>` elements. The `--slug` option is now repeatable instead of a positional argument.
 
 ## Synthetic Introduction sections (v0.6.0)
 
