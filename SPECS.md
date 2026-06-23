@@ -635,6 +635,13 @@ Relationships lay the groundwork for a knowledge graph: documents reference each
 * **Web UI** — `docpack serve ./mykb --ui` spins up a local web app for browsing, searching, and exploring the knowledge base. Browser-based TOC navigation, FTS search, graph visualization when embeddings and relationships are available.
 * **Incremental updates** — track file modification times to detect changes. Enable `--watch` mode or manual `docpack update` for incremental KB rebuilds. KB lives in a `.docpack/` folder at document root (like `.git`), updating automatically on file changes or on demand.
 * **AI-authored documents** — agents can create new Markdown files in an `ai/` directory alongside `docpack.db` and `docpack.yaml`. An incremental re-bundle ingests these into the KB, and a post-processing step computes bidirectional relationships between AI-authored and source documents. Example: an agent reading a novel creates one document per character in `ai/characters/`. Each chapter relates to the characters that appear in it; each character document relates back to the chapters they appear in. This lets agents autonomously build and evolve layered knowledge on top of source material.
+* **Merge summaries into chunks (TBD)** — after the synthetic Introduction change, internal nodes always have `chunk: null`. Proposal: store AI-generated subtree summaries in the `chunk` field of internal nodes instead of the separate `summary` column. Leaf nodes keep author content in `chunk` as before. Drop the `summary` column entirely.
+
+  **Benefits:** one fewer column, summaries get FTS treatment automatically, `get(slug)` on any node returns useful text (content or summary). No API surface changes — `type` distinguishes leaves (author content) from internal nodes (AI summaries).
+
+  **Trade-offs:** internal chunks are null before summarize runs (same as current `summary` behavior). Search results mix author content and AI summaries — agents must check node type/children to distinguish. Semantic shift: `chunk` means "self content" on leaves but "subtree summary" on internal nodes.
+
+  **Open questions:** should summaries be excluded from search by default and opt-in? How to flag AI-generated vs author content in search snippets? Does the summarize prompt need to change since output goes into `chunk` instead of `summary`?
 
 ## Known Issues
 
