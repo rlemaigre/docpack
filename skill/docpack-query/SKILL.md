@@ -63,7 +63,7 @@ npx @rlemaigre/docpack toc ./mykb "<section_slug>" --depth 2
 **Step 4: `get`** -- retrieve specific leaf sections.
 
 ```bash
-npx @rlemaigre/docpack get ./mykb "<leaf_slug>"
+npx @rlemaigre/docpack get ./mykb --slug "<leaf_slug>"
 ```
 
 Returns XML with chunk content and children. Leaf sections (depth=0) are the smallest units.
@@ -89,7 +89,7 @@ npx @rlemaigre/docpack search ./mykb "DataWindow AND filter" --limit 10 > /tmp/h
 grep "slug:" /tmp/hits.yaml
 
 # Get specific documents
-npx @rlemaigre/docpack get ./mykb "9-31-filter"
+npx @rlemaigre/docpack get ./mykb --slug "9-31-filter"
 ```
 
 ### Strategy 3: Hybrid (complex questions)
@@ -104,7 +104,7 @@ npx @rlemaigre/docpack search ./mykb "authentication AND OAuth" --limit 5
 npx @rlemaigre/docpack toc ./mykb "<parent_slug>" --depth 1
 
 # 3. Retrieve the full content
-npx @rlemaigre/docpack get ./mykb "<target_slug>"
+npx @rlemaigre/docpack get ./mykb --slug "<target_slug>"
 ```
 
 ### Strategy 4: Sequential navigation
@@ -113,11 +113,11 @@ Use `prev`/`next` attributes in `get` XML output to walk through sections in rea
 
 ```bash
 # Get a section
-npx @rlemaigre/docpack get ./mykb "17-2-choosing-a-presentation-style"
+npx @rlemaigre/docpack get ./mykb --slug "17-2-choosing-a-presentation-style"
 # XML shows: prev="17-2-1-..." next="17-2-2-..."
 
 # Follow the chain
-npx @rlemaigre/docpack get ./mykb "17-2-2-using-the-freeform-style"
+npx @rlemaigre/docpack get ./mykb --slug "17-2-2-using-the-freeform-style"
 ```
 
 `prev`/`next` are present on section documents (children of files), not on root documents.

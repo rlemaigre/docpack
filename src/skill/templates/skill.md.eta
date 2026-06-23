@@ -27,7 +27,7 @@ The bundled wrapper script resolves the knowledge base path automatically. Run f
 ```bash
 node ./scripts/docpack.mjs manifest
 node ./scripts/docpack.mjs toc "<%= it.home %>" --depth 1
-node ./scripts/docpack.mjs get "<slug>"
+node ./scripts/docpack.mjs get --slug "<slug>"
 node ./scripts/docpack.mjs search "<query>" --limit 5
 ```
 
@@ -66,7 +66,7 @@ Combine terms with `AND` for narrow results. Use `--limit 1-5` for token efficie
 ```bash
 node ./scripts/docpack.mjs search "DataWindow AND filter" --limit 10
 grep "slug:" /tmp/hits.yaml
-node ./scripts/docpack.mjs get "9-31-filter"
+node ./scripts/docpack.mjs get --slug "9-31-filter"
 ```
 
 ### Sequential navigation

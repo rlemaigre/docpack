@@ -27,20 +27,31 @@ describe("formatXml", () => {
     expect(xml).toContain("/>" );
   });
 
-  it("produces a single root <document> element (no double wrapping)", () => {
+  it("wraps document(s) in <documents> root", () => {
     const doc = makeDoc();
     const xml = formatXml(doc);
 
-    // Should have exactly one opening <document with attributes
-    // Not a bare <document> wrapper followed by a child <document>
-    const lines = xml.trim().split("\n");
-    // After XML declaration, first element should be the root with attributes
-    const rootLine = lines.find((l) => l.includes("<document"));
-    expect(rootLine).toContain('slug="test"');
+    expect(xml).toContain("<documents>");
+    expect(xml).toContain("</documents>");
 
-    // Count <document occurrences: should be exactly 2 (open + close/self-close)
-    const documentTags = xml.match(/<document[^>]*>/g);
-    expect(documentTags?.length).toBe(1);
+    // The <document> with attributes should be a child of <documents>
+    const lines = xml.trim().split("\n");
+    const docLine = lines.find((l) => l.includes('<document slug="test"'));
+    expect(docLine).toBeDefined();
+  });
+
+  it("renders multiple documents in one call", () => {
+    const doc1 = makeDoc({ slug: "a", title: "A" });
+    const doc2 = makeDoc({ slug: "b", title: "B" });
+    const xml = formatXml(doc1, doc2);
+
+    expect(xml).toContain("<documents>");
+    expect(xml).toContain('slug="a"');
+    expect(xml).toContain('slug="b"');
+
+    // Exactly two <document slug=...> elements
+    const docTags = xml.match(/<document slug="/g);
+    expect(docTags?.length).toBe(2);
   });
 
   it("renders chunk as text content (not XML comment)", () => {

@@ -35,6 +35,26 @@ interface NodeRowWithNav extends NodeRow {
 }
 
 /**
+ * Fetch multiple nodes and their full subtrees.
+ *
+ * Calls get() for each slug, skipping missing ones.
+ *
+ * @param db - Open database connection.
+ * @param slugs - Target node slugs.
+ * @returns Document trees for found slugs (missing slugs are skipped).
+ */
+export function batchGet(db: Database, slugs: string[]): Document[] {
+  const results: Document[] = [];
+  for (const slug of slugs) {
+    const doc = get(db, slug);
+    if (doc) {
+      results.push(doc);
+    }
+  }
+  return results;
+}
+
+/**
  * Fetch a node and its full subtree as a Document tree.
  *
  * Uses the closure table to fetch all descendants in a single batch query.

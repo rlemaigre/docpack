@@ -4,7 +4,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import YAML from "yaml";
 import { toc as tocFn } from "./toc";
-import { get as getFn } from "./get";
+import { get as getFn, batchGet as batchGetFn } from "./get";
 import { search as searchFn } from "./search";
 import type { TOC, Summary } from "./toc";
 import type { Document } from "./get";
@@ -32,6 +32,7 @@ export interface KBInstance {
   manifest(): Manifest;
   toc(slug: string, depth: number | "full"): TOC;
   get(slug: string): Document | null;
+  get(slugs: string[]): Document[];
   search(params: SearchParams): SearchResults;
   close(): void;
 }
@@ -85,8 +86,13 @@ function createKBInstance(
       return result;
     },
 
-    get(slug: string): Document | null {
-      return getFn(db, slug);
+    // sonarjs: overload implementation — single slug returns Document|null, array returns Document[]
+    // eslint-disable-next-line sonarjs/function-return-type
+    get(arg: string | string[]): Document | null | Document[] {
+      if (Array.isArray(arg)) {
+        return batchGetFn(db, arg);
+      }
+      return getFn(db, arg);
     },
 
     search(params: SearchParams): SearchResults {
@@ -96,5 +102,5 @@ function createKBInstance(
     close(): void {
       db.close();
     },
-  };
+  } as KBInstance;
 }

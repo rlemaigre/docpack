@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import { cac } from "cac";
 import { bundle } from "../bundler";
 import { query } from "../query";
+import type { Document } from "../query";
 import { summarize } from "../post-process/summarize";
 import { generateSkill } from "../skill/generate";
 import { formatXml, formatYaml } from "./format";
@@ -10,7 +11,7 @@ import { startMCPServer, parseDepth } from "./mcp";
 
 const cli = cac("docpack");
 
-cli.version("0.6.0");
+cli.version("0.7.0");
 cli.help();
 
 // ---------------------------------------------------------------------------
@@ -100,17 +101,31 @@ cli
 // ---------------------------------------------------------------------------
 cli
   .command(
-    "get <kb> <slug>",
-    "Get a document and its subtree as XML",
+    "get <kb>",
+    "Get one or more documents and their subtrees as XML",
   )
-  .action((kb, slug) => {
+  .option("--slug <slug>", "Document slug (repeatable)")
+  .action((kb, options) => {
+    const rawSlug = options.slug;
+    let slugList: string[];
+    if (!rawSlug) {
+      slugList = [];
+    } else if (Array.isArray(rawSlug)) {
+      slugList = rawSlug;
+    } else {
+      slugList = [rawSlug];
+    }
+    if (slugList.length === 0) {
+      exitError("Missing required option: --slug <slug>");
+    }
+
     const kbinst = query(kb);
     try {
-      const doc = kbinst.get(slug);
-      if (!doc) {
-        exitError(`Slug not found: ${slug}`);
+      const docs: Document[] = kbinst.get(slugList);
+      if (docs.length === 0) {
+        exitError(`No slugs found: ${slugList.join(", ")}`);
       }
-      process.stdout.write(formatXml(doc));
+      process.stdout.write(formatXml(...docs));
     } finally {
       kbinst.close();
     }

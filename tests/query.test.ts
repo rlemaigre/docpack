@@ -263,6 +263,54 @@ describe("query", () => {
         kb.close();
       }
     });
+
+    it("fetches multiple documents with batch get", () => {
+      setupKB();
+      const kb = query(outputDir);
+      try {
+        const docs = kb.get(["readme", "guide"]);
+        expect(docs).toHaveLength(2);
+        expect(docs[0].slug).toBe("readme");
+        expect(docs[1].slug).toBe("guide");
+      } finally {
+        kb.close();
+      }
+    });
+
+    it("skips missing slugs in batch get", () => {
+      setupKB();
+      const kb = query(outputDir);
+      try {
+        const docs = kb.get(["readme", "nonexistent", "guide"]);
+        expect(docs).toHaveLength(2);
+        expect(docs[0].slug).toBe("readme");
+        expect(docs[1].slug).toBe("guide");
+      } finally {
+        kb.close();
+      }
+    });
+
+    it("returns empty array when all slugs are missing", () => {
+      setupKB();
+      const kb = query(outputDir);
+      try {
+        const docs = kb.get(["foo", "bar"]);
+        expect(docs).toEqual([]);
+      } finally {
+        kb.close();
+      }
+    });
+
+    it("returns empty array for empty input", () => {
+      setupKB();
+      const kb = query(outputDir);
+      try {
+        const docs = kb.get([]);
+        expect(docs).toEqual([]);
+      } finally {
+        kb.close();
+      }
+    });
   });
 
   describe("search()", () => {
