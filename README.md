@@ -404,7 +404,7 @@ Document = {
   index: number,
   chunk: string?,      // self content (Markdown) — present only on leaf documents
   summary: string?,    // subtree overview
-  children: Document[] | Summary
+  children: Document[]
 }
 ```
 
