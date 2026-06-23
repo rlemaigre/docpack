@@ -614,6 +614,14 @@ CREATE TABLE relationship_params (
 CREATE INDEX idx_rel_params_slug ON relationship_params(slug);
 ```
 
+# Breaking Changes
+
+## Synthetic Introduction sections (v0.6.0)
+
+File documents that previously had preamble content (chunk) now have `chunk: null` and a synthetic "Introduction" child section. Agents using `get("<file-slug>")` will see an empty chunk instead of preamble text. The content is at `get("<file-slug>-introduction")`.
+
+Existing `docpack://<file-slug>` links in home files still resolve to the file document (container). Agents must navigate to the introduction child for content.
+
 # Future
 
 ## Knowledge Graph
