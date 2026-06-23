@@ -33,9 +33,16 @@ The bundled wrapper script resolves the knowledge base path automatically. Run f
 
 ```bash
 node ./scripts/docpack.mjs manifest
+# -> YAML: version, totalChunks, totalBytes, home, description, url, exportedAt
+
 node ./scripts/docpack.mjs toc "<%= it.home %>" --depth 1
+# -> YAML: slug, title, children[] with chunkCount, totalBytes, depth
+
 node ./scripts/docpack.mjs get --slug "<slug>"
+# -> XML: <documents><document slug="..." title="..."><chunk>...</chunk></document></documents>
+
 node ./scripts/docpack.mjs search "<query>" --limit 5
+# -> YAML: total, hits[] with slug, snippet, parent
 ```
 
 ## Token budget (relative)

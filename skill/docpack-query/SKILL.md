@@ -40,6 +40,17 @@ Output scales with KB size. These relative orderings hold across KBs. Use `chunk
 npx @rlemaigre/docpack manifest ./mykb
 ```
 
+Output (YAML):
+```yaml
+version: 0.7.0
+totalChunks: 6496
+totalBytes: 7436104
+home: powerbuilder-2019-users-guide-for-pb-2019
+description: null
+url: null
+exportedAt: 2026-06-23T07:13:56.538Z
+```
+
 Returns `version`, `totalChunks`, `totalBytes`, `home` (slug of the primary entry file), `description`, `url`, and `exportedAt`.
 
 Use `totalChunks` and `totalBytes` to gauge KB size. Use `home` as your entry point slug.
@@ -48,6 +59,19 @@ Use `totalChunks` and `totalBytes` to gauge KB size. Use `home` as your entry po
 
 ```bash
 npx @rlemaigre/docpack toc ./mykb "<home_slug>" --depth 1
+```
+
+Output (YAML) — clipped children carry `Summary` stats, not expanded trees:
+```yaml
+slug: powerbuilder-2019-users-guide-for-pb-2019
+title: Part I. The PowerBuilder Environment
+children:
+  - slug: 1-working-with-powerbuilder
+    title: 1 Working with PowerBuilder
+    children:
+      chunkCount: 40
+      totalBytes: 45856
+      depth: 2
 ```
 
 Each child shows `chunkCount`, `totalBytes`, and `depth`. This tells you two things:
@@ -92,9 +116,32 @@ Best when you know the topic but not its location.
 ```bash
 # Step 1: search with combined terms
 npx @rlemaigre/docpack search ./mykb "DataWindow AND filter" --limit 5
+```
 
+Search output (YAML):
+```yaml
+total: 82
+hits:
+  - slug: 1-1-4-77-authentication-failed
+    snippet: You set the database_<b>authentication</b> ... option incorrectly.
+    parent: 1-1-sql-anywhere-error-messages
+```
+
+```bash
 # Step 2: pick the best match from snippets, get full content
 npx @rlemaigre/docpack get ./mykb --slug "9-31-filter"
+```
+
+Get output (XML):
+```xml
+<documents>
+  <document slug="1-1-4-77-authentication-failed" title="1.1.4.77 Authentication failed" level="3" depth="0" parent="1-1-sql-anywhere-error-messages">
+    <chunk>Error constant
+SQLE_AUTHENTICATION_FAILED
+...</chunk>
+    <children/>
+  </document>
+</documents>
 ```
 
 Search returns **snippet excerpts** (~30 tokens per hit with `<b>`/`</b>` markers), not full chunks. Output is compact. Use `--limit 3-10` depending on how many candidates you want to scan.
