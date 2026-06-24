@@ -33,8 +33,18 @@ function parseArgs(argv) {
     if (argv[i].startsWith("--")) {
       const key = argv[i].slice(2);
       const next = argv[i + 1];
-      args[key] = next && !next.startsWith("--") ? next : true;
-      if (args[key] !== true) i++;
+      // collect repeatable flags into arrays instead of overwriting
+      const value = next && !next.startsWith("--") ? next : true;
+      if (key in args) {
+        if (Array.isArray(args[key])) {
+          args[key].push(value);
+        } else {
+          args[key] = [args[key], value];
+        }
+      } else {
+        args[key] = value;
+      }
+      if (value !== true) i++;
     } else {
       positional.push(argv[i]);
     }
@@ -57,9 +67,11 @@ switch (command) {
     run(`toc "${KB}" "${slug}" ${depth}`.trim());
     break;
   case "get":
-    const getSlug = args.slug || positional[1];
-    if (!getSlug) { process.stderr.write("error: missing --slug <slug>\n"); process.exit(1); }
-    run(`get "${KB}" --slug "${getSlug}"`);
+    let slugs = args.slug || positional[1];
+    if (!slugs) { process.stderr.write("error: missing --slug <slug>\n"); process.exit(1); }
+    const slugList = Array.isArray(slugs) ? slugs : [slugs];
+    const slugFlags = slugList.map(s => `--slug "${s}"`).join(" ");
+    run(`get "${KB}" ${slugFlags}`);
     break;
   case "search":
     const query = positional[1];

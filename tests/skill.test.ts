@@ -168,6 +168,16 @@ describe("skill generation", () => {
     expect(dbSize).toBeGreaterThan(0);
   });
 
+  it("wrapper script supports repeatable --slug for batch get", () => {
+    setupKB();
+    generateSkill({ kb: kbDir, output: skillDir, useWhen: "Test." });
+    const script = fs.readFileSync(path.join(skillDir, "scripts", "docpack.mjs"), "utf8");
+    expect(script).toContain("Array.isArray");
+    expect(script).toContain("repeatable");
+    // verify the get case builds multiple --slug flags
+    expect(script).toMatch(/slugList\.map.*--slug/s);
+  });
+
   it("SKILL.md uses KB directory basename for name, not home slug", () => {
     setupKB();
 
