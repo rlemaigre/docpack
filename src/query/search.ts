@@ -23,6 +23,22 @@ export interface SearchParams {
 }
 
 /**
+ * Sanitize a user query for safe passage to FTS5.
+ *
+ * FTS5 treats `'` as a phrase delimiter (e.g. `"word1 word2"`). A bare
+ * apostrophe in the query breaks the parser with `fts5: syntax error near "'"`.
+ *
+ * Replaces apostrophes with spaces so French contractions like `d'une`
+ * become `d une` — treated as two separate tokens, which matches user intent.
+ *
+ * @param raw - User-supplied query string.
+ * @returns Sanitized query safe for FTS5.
+ */
+function sanitizeFtsQuery(raw: string): string {
+  return raw.replace(/'/g, " ");
+}
+
+/**
  * Full-text search over node titles and chunk content.
  *
  * Uses SQLite FTS5 with BM25 ranking. The query string accepts the full
@@ -34,9 +50,10 @@ export interface SearchParams {
  */
 export function search(db: Database, params: SearchParams): SearchResults {
   const { query, limit, offset } = params;
+  const sanitized = sanitizeFtsQuery(query);
 
-  const total = countMatches(db, query);
-  const rawHits = fetchRankedHits(db, query, limit, offset);
+  const total = countMatches(db, sanitized);
+  const rawHits = fetchRankedHits(db, sanitized, limit, offset);
 
   // Fetch prev/next navigation for matched slugs
   const slugs = rawHits.map((h) => h.slug);

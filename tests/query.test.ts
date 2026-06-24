@@ -365,6 +365,69 @@ describe("query", () => {
         kb.close();
       }
     });
+
+    it("handles apostrophes in search queries (French contractions)", () => {
+      // Write French content with apostrophes in leaf chunks (not just file titles)
+      fs.writeFileSync(
+        path.join(inputDir, "french.md"),
+        ["# French Content", "", "C'est un test avec l'article principal.", "", "## Section", "", "La validation d'une page est claire."].join("\n"),
+      );
+      fs.writeFileSync(
+        path.join(inputDir, "home2.md"),
+        "# Home\n\n* [French](docpack://french)\n",
+      );
+      bundle({ input: inputDir, output: outputDir, home: path.join(inputDir, "home2.md") });
+
+      const kb = query(outputDir);
+      try {
+        // Apostrophes should not crash — sanitized to spaces before FTS5
+        const r1 = kb.search({ query: "c'est", limit: 10, offset: 0 });
+        // "c'est" -> "c est" -> matches "test" etc. via "est" token
+        expect(() => kb.search({ query: "c'est", limit: 10, offset: 0 })).not.toThrow();
+        expect(r1.total).toBeGreaterThanOrEqual(0); // may or may not match, must not crash
+
+        // "l'article" -> "l article" -> "article" should match
+        const r2 = kb.search({ query: "l'article", limit: 10, offset: 0 });
+        expect(r2.total).toBeGreaterThan(0);
+
+        // "d'une" -> "d une" -> "une" should match
+        const r3 = kb.search({ query: "d'une", limit: 10, offset: 0 });
+        expect(r3.total).toBeGreaterThan(0);
+      } finally {
+        kb.close();
+      }
+    });
+
+    it("handles accented characters in search queries", () => {
+      // Write accented content
+      fs.writeFileSync(
+        path.join(inputDir, "accented.md"),
+        ["# Paramètres de configuration", "", "La carrière des employés est importante.", "", "## Résumé", "", "Le résumé de l'article est clair."].join("\n"),
+      );
+      fs.writeFileSync(
+        path.join(inputDir, "home3.md"),
+        "# Home\n\n* [Accented](docpack://accented)\n",
+      );
+      bundle({ input: inputDir, output: outputDir, home: path.join(inputDir, "home3.md"), converter: mdConverter });
+
+      const kb = query(outputDir);
+      try {
+        // Both accented and unaccented forms should match
+        const r1 = kb.search({ query: "carrière", limit: 10, offset: 0 });
+        expect(r1.total).toBeGreaterThan(0);
+
+        const r2 = kb.search({ query: "carriere", limit: 10, offset: 0 });
+        expect(r2.total).toBeGreaterThan(0);
+
+        const r3 = kb.search({ query: "résumé", limit: 10, offset: 0 });
+        expect(r3.total).toBeGreaterThan(0);
+
+        const r4 = kb.search({ query: "resume", limit: 10, offset: 0 });
+        expect(r4.total).toBeGreaterThan(0);
+      } finally {
+        kb.close();
+      }
+    });
   });
 
   describe("close()", () => {
