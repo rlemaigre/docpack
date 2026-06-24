@@ -8,8 +8,26 @@ import type { TOC } from "../query";
 import pkg from "../../package.json";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const SKILL_TEMPLATE = fs.readFileSync(path.join(__dirname, "templates", "skill.md.eta"), "utf8");
-const WRAPPER_TEMPLATE = fs.readFileSync(path.join(__dirname, "templates", "docpack.mjs.eta"), "utf8");
+
+/** Resolve template path, checking both possible locations (dist/skill/templates or dist/cli/templates). */
+function resolveTemplate(name: string): string {
+  // Try skill/templates first (for dist/index.js bundle)
+  const skillPath = path.join(__dirname, "skill", "templates", name);
+  if (fs.existsSync(skillPath)) {
+    return fs.readFileSync(skillPath, "utf8");
+  }
+  // Try templates (for dist/cli/index.js bundle)
+  const cliPath = path.join(__dirname, "templates", name);
+  if (fs.existsSync(cliPath)) {
+    return fs.readFileSync(cliPath, "utf8");
+  }
+  // Fallback to src (development)
+  const srcPath = path.join(__dirname, "..", "..", "src", "skill", "templates", name);
+  return fs.readFileSync(srcPath, "utf8");
+}
+
+const SKILL_TEMPLATE = resolveTemplate("skill.md.eta");
+const WRAPPER_TEMPLATE = resolveTemplate("docpack.mjs.eta");
 const eta = new Eta({ autoTrim: [false, false] });
 
 // ---------------------------------------------------------------------------

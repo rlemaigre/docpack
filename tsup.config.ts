@@ -14,6 +14,8 @@ export default defineConfig({
   async onSuccess() {
     // Copy template files next to each bundle that needs them
     const src = path.join(process.cwd(), "src", "skill", "templates");
+    // For dist/index.js (main bundle), templates go in dist/skill/templates
+    // For dist/cli/index.js, templates go in dist/cli/templates
     for (const destDir of ["dist/skill", "dist/cli"]) {
       const dest = path.join(process.cwd(), destDir, "templates");
       fs.mkdirSync(dest, { recursive: true });
