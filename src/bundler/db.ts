@@ -126,23 +126,24 @@ function insertFileNode(
   // Rewrite links in all descendant chunks
   rewriteLinksInTree(mdTree.children, file.relPath, registry);
 
-  // Insert file node (all files are roots, parent_slug is null)
-  insertNode.run({
+  // Insert file node with retry logic to handle collisions with section slugs
+  const fileParams = {
     slug,
-    type: "file",
+    type: "file" as const,
     title: mdTree.title,
-    parent_slug: null,
+    parent_slug: null as string | null,
     idx: file.index,
     chunk: mdTree.chunk,
-    summary: null,
-  });
+    summary: null as string | null,
+  };
+  const finalSlug = insertWithRetry(insertNode, fileParams, slug);
 
   // Track chunk stats for file node itself
   trackChunkStats(mdTree.chunk, stats);
 
   // Insert heading children (offset idx by file.index + 1 to avoid collision with file node)
   for (const child of mdTree.children) {
-    insertMDNode(child, slug, insertNode, stats, file.index + 1);
+    insertMDNode(child, finalSlug, insertNode, stats, file.index + 1);
   }
 }
 
