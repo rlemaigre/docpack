@@ -3,6 +3,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import { bundle } from "../src/bundler";
+
+const pkg = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 import { generateSkill } from "../src/skill/generate";
 
 describe("skill generation", () => {
@@ -130,7 +132,7 @@ describe("skill generation", () => {
 
     const script = fs.readFileSync(path.join(skillDir, "scripts", "docpack.mjs"), "utf8");
 
-    expect(script).toContain("@rlemaigre/docpack@0.7.1");
+    expect(script).toContain(`@rlemaigre/docpack@${pkg.version}`);
   });
 
   it("wrapper script resolves KB path relative to itself", () => {
