@@ -124,14 +124,27 @@ function mapDocuments<T>(fn: (doc: Document<T>) => Document<T>): Operator<T>;
 Creates an operator that transforms documents without changing hierarchy. Delegates `root()` and `fetchChildren()` to the source KB; wraps `fetch()` to apply the transform.
 
 ```ts
-// Example: trim titles
 const trimTitles = mapDocuments(doc => ({ ...doc, title: doc.title?.trim() }));
+```
 
-// Example: normalize frontmatter
-const normalizeMeta = mapDocuments(doc => ({
-  ...doc,
-  meta: { ...doc.meta, author: (doc.meta as any).author?.toUpperCase() },
-}));
+```ts
+function pipe<T>(...ops: Operator<T>[]): Operator<T>;
+```
+
+Composes operators left-to-right into a single operator. Not applied until called with a KB.
+
+```ts
+const preprocess = pipe(
+  Op.parseMarkdown(),
+  Op.parseHeadings(),
+  Op.resolveCollisions(),
+  Op.rewriteLinks(),
+);
+// preprocess is Operator<T> — reusable, not applied yet
+
+pipeline(kb, [preprocess], output);
+// or
+const enhancedKB = preprocess(kb);
 ```
 
 ### Operators
@@ -483,6 +496,7 @@ export function asQuery<T>(kb: KB<T>): KBQuery<T>;
 
 // Operator helpers
 export function mapDocuments<T>(fn: (doc: Document<T>) => Document<T>): Operator<T>;
+export function pipe<T>(...ops: Operator<T>[]): Operator<T>;  // compose operators left-to-right
 
 // Pipeline
 export function pipeline<T>(source: KB<T>, operators: Operator<T>[], output: string, options?: PipelineOptions): BundleStats;
@@ -498,9 +512,6 @@ export const Op: {
   summarizeFile<T>(path: string): Operator<T>;
   summarizeLLM<T>(opts: SummarizeLLMOptions): Operator<T>;
 };
-
-// Operator helpers
-export function mapDocuments<T>(fn: (doc: Document<T>) => Document<T>): Operator<T>;
 
 // Query types
 export interface Manifest { ... }
