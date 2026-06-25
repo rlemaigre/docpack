@@ -218,7 +218,7 @@ interface BundleStats {
 Usage:
 
 ```ts
-import { pipeline, KB, parseMarkdown, parseHeadings, resolveCollisions, rewriteLinks } from "@rlemaigre/docpack";
+import { pipeline, KB, Op } from "@rlemaigre/docpack";
 
 pipeline(
   KB.union(
@@ -227,10 +227,10 @@ pipeline(
     KB.ofFile("./README.md"),
   ),                                     // flat KB<FileMeta>: slug=from abs path, title=null, chunk=null
   [
-    parseMarkdown(),            // populate slug/title/chunk from meta.content + frontmatter
-    parseHeadings(),            // split on ATX headings → sections
-    resolveCollisions(),        // fix duplicate slugs
-    rewriteLinks(),             // relative .md → docpack://slug
+    Op.parseMarkdown(),       // populate slug/title/chunk from meta.content + frontmatter
+    Op.parseHeadings(),       // split on ATX headings → sections
+    Op.resolveCollisions(),   // fix duplicate slugs
+    Op.rewriteLinks(),        // relative .md → docpack://slug
   ],
   "./mykb",
   { description: "Project documentation" },
@@ -488,14 +488,19 @@ export function mapDocuments<T>(fn: (doc: Document<T>) => Document<T>): Operator
 export function pipeline<T>(source: KB<T>, operators: Operator<T>[], output: string, options?: PipelineOptions): BundleStats;
 export function bundle(options: BundleOptions): BundleStats;  // convenience wrapper
 
-// Operators
-export function parseMarkdown(): Operator<FileMeta>;
-export function parseHeadings<T>(): Operator<T>;
-export function insertIntroductions<T>(): Operator<T>;
-export function resolveCollisions<T>(): Operator<T>;
-export function rewriteLinks<T>(): Operator<T>;
-export function summarizeFile<T>(path: string): Operator<T>;
-export function summarizeLLM<T>(opts: SummarizeLLMOptions): Operator<T>;
+// Operators (namespaced for autocomplete discovery)
+export const Op: {
+  parseMarkdown(): Operator<FileMeta>;
+  parseHeadings<T>(): Operator<T>;
+  insertIntroductions<T>(): Operator<T>;
+  resolveCollisions<T>(): Operator<T>;
+  rewriteLinks<T>(): Operator<T>;
+  summarizeFile<T>(path: string): Operator<T>;
+  summarizeLLM<T>(opts: SummarizeLLMOptions): Operator<T>;
+};
+
+// Operator helpers
+export function mapDocuments<T>(fn: (doc: Document<T>) => Document<T>): Operator<T>;
 
 // Query types
 export interface Manifest { ... }
@@ -549,15 +554,16 @@ export interface SearchParams { ... }
 
 | File | Purpose |
 |---|---|
-| `src/operators/index.ts` | Operator exports and types. |
+| `src/operators/index.ts` | `Op` namespace object, exports all operators. |
 | `src/kb/of.ts` | `KB.ofDirectory(path, glob)` and `KB.ofFile(path)` — filesystem-backed KB factories. |
 | `src/kb/union.ts` | `KB.union(...kbs)` — merge multiple KBs, last wins on collision. |
-| `src/operators/parse-headings.ts` | `parseHeadings()` operator — ATX heading parsing. |
-| `src/operators/insert-introductions.ts` | `insertIntroductions()` operator — synthetic intro sections. |
-| `src/operators/resolve-collisions.ts` | `resolveCollisions()` operator — slug disambiguation. |
-| `src/operators/rewrite-links.ts` | `rewriteLinks()` operator — link rewriting. |
-| `src/operators/summarize-file.ts` | `summarizeFile(path)` operator — JSONL import. |
-| `src/operators/summarize-llm.ts` | `summarizeLLM(opts)` operator — LLM fold. |
+| `src/operators/parse-markdown.ts` | `Op.parseMarkdown()` — populate slug/title/chunk from FileMeta. |
+| `src/operators/parse-headings.ts` | `Op.parseHeadings()` — ATX heading parsing. |
+| `src/operators/insert-introductions.ts` | `Op.insertIntroductions()` — synthetic intro sections. |
+| `src/operators/resolve-collisions.ts` | `Op.resolveCollisions()` — slug disambiguation. |
+| `src/operators/rewrite-links.ts` | `Op.rewriteLinks()` — link rewriting. |
+| `src/operators/summarize-file.ts` | `Op.summarizeFile(path)` — JSONL import. |
+| `src/operators/summarize-llm.ts` | `Op.summarizeLLM(opts)` — LLM fold. |
 | `src/pipeline.ts` | Pipeline function — compose operators, materialize to SQLite. |
 | `src/query/ancestors.ts` | `ancestors(slug)` query — closure table lookup. |
 | `src/query/materialize.ts` | Traverse KB, write nodes + closure to SQLite. |

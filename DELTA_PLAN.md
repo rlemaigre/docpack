@@ -39,12 +39,14 @@ Extract bundler logic into operators.
 - [ ] **3.1** Add `src/operators/index.ts` — `Operator` type, exports
 - [ ] **3.2** Add `src/kb/of.ts` — `KB.ofDirectory(path, glob)` and `KB.ofFile(path)` factories. Reads filesystem → flat KB: synthetic root + atomic file docs (slug=from abs path, title=null, chunk=null, meta=FileMeta). Zero parsing.
 - [ ] **3.3** Add `src/kb/union.ts` — `KB.union(...kbs)` merges multiple KBs into one. Last KB wins on slug collision.
-- [ ] **3.3** Add `src/operators/parse-headings.ts` — `parseHeadings()` splits chunks on ATX headings
-- [ ] **3.4** Add `src/operators/insert-introductions.ts` — `insertIntroductions()` moves preamble to synthetic children
-- [ ] **3.5** Add `src/operators/resolve-collisions.ts` — `resolveCollisions()` disambiguates slugs
-- [ ] **3.6** Add `src/operators/rewrite-links.ts` — `rewriteLinks()` rewrites relative .md links
-- [ ] **3.7** Add `src/operators/summarize-file.ts` — `summarizeFile(path)` imports JSONL summaries
-- [ ] **3.8** Add `src/operators/summarize-llm.ts` — `summarizeLLM(opts)` LLM bottom-up fold
+- [ ] **3.3** Add `src/operators/parse-markdown.ts` — `Op.parseMarkdown()` populates slug/title/chunk from FileMeta
+- [ ] **3.4** Add `src/operators/parse-headings.ts` — `Op.parseHeadings()` splits chunks on ATX headings
+- [ ] **3.5** Add `src/operators/insert-introductions.ts` — `Op.insertIntroductions()` moves preamble to synthetic children
+- [ ] **3.6** Add `src/operators/resolve-collisions.ts` — `Op.resolveCollisions()` disambiguates slugs
+- [ ] **3.7** Add `src/operators/rewrite-links.ts` — `Op.rewriteLinks()` rewrites relative .md links
+- [ ] **3.8** Add `src/operators/summarize-file.ts` — `Op.summarizeFile(path)` imports JSONL summaries
+- [ ] **3.9** Add `src/operators/summarize-llm.ts` — `Op.summarizeLLM(opts)` LLM bottom-up fold
+- [ ] **3.10** Add `src/operators/index.ts` — `Op` namespace object, exports all operators
 
 **Tests:** Each operator tested in isolation. Input KB → operator → assert output KB.
 
@@ -55,7 +57,7 @@ Extract bundler logic into operators.
 Compose operators and materialize.
 
 - [ ] **4.1** Add `src/pipeline.ts` — `pipeline(operators[], output, options)` composes operators, traverses result, materializes to SQLite
-- [ ] **4.2** Rewrite `src/bundler/index.ts` — `bundle()` becomes a convenience wrapper: `pipeline(KB.ofDirectory(input), [parseHeadings, ...], output, options)`
+- [ ] **4.2** Rewrite `src/bundler/index.ts` — `bundle()` becomes a convenience wrapper: `pipeline(KB.ofDirectory(input), [Op.parseMarkdown(), Op.parseHeadings(), ...], output, options)`
 - [ ] **4.3** Delete old bundler files: `src/bundler/db.ts`, `src/bundler/walker.ts`, `src/bundler/parser.ts`, `src/bundler/link-rewriter.ts` (logic moved to operators)
 
 **Tests:** Full pipeline integration test. Input dir → pipeline → query KB → assert correct tree.
