@@ -142,6 +142,17 @@ const trimTitles = mapDocuments(doc => ({ ...doc, title: doc.title?.trim() }));
 ```
 
 ```ts
+function filterDocuments<T>(fn: (doc: Document<T>) => boolean): Operator<T>;
+```
+
+Filters documents out of the KB. Updates `fetchChildren` to exclude filtered docs.
+
+```ts
+const markdownOnly = filterDocuments(doc => doc.meta.extname === '.md');
+const noDrafts = filterDocuments(doc => doc.meta.frontmatter?.draft !== true);
+```
+
+```ts
 function pipe<T>(...ops: Operator<T>[]): Operator<T>;
 ```
 
@@ -536,6 +547,7 @@ export function asQuery<T>(kb: KB<T>): KBQuery<T>;
 
 // Operator helpers
 export function mapDocuments<T>(fn: (doc: Document<T>) => Document<T>): Operator<T>;
+export function filterDocuments<T>(fn: (doc: Document<T>) => boolean): Operator<T>;
 export function pipe<T>(...ops: Operator<T>[]): Operator<T>;  // compose operators left-to-right
 
 // Materialize
