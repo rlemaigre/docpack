@@ -108,9 +108,9 @@ Base interface. Two primary implementations:
 
 ```ts
 interface KBQuery<T = Record<string, unknown>> extends KB<T> {
-  fetchNodes(slugs: string[]): Node<T>[];      // batch fetch nodes, missing skipped
-  fetch(slug: string): Document<T> | null;     // fetch doc with full subtree
-  fetchMany(slugs: string[]): Document<T>[];   // batch fetch docs with subtrees
+  fetchNodes(slugs: string[]): Node<T>[];          // batch fetch nodes, missing skipped
+  fetchDocument(slug: string): Document<T> | null; // fetch doc with full subtree
+  fetchDocuments(slugs: string[]): Document<T>[];  // batch fetch docs with subtrees
   manifest(): Manifest;
   stats(): BundleStats;
   where(filter: WhereFilter<T>): Node<T>[];    // type-safe query DSL → SQL WHERE
@@ -414,7 +414,7 @@ The SQLite KB implementation extends the base `KB` with efficient query primitiv
 interface KBQuery extends KB {
   manifest(): Manifest;
   toc(slug: string, depth: number | "full"): TOC;
-  fetch(slug: string): Document | null;     // single slug, with subtree
+  fetchDocument(slug: string): Document | null;     // single slug, with subtree
   getMany(slugs: string[]): Document[];   // batch fetch, with subtrees
   ancestors(slug: string): Document[];    // chain from parent to root
   search(params: SearchParams): SearchHit[];  // flat array, no total wrapper
@@ -444,7 +444,7 @@ Client can navigate:
 - **Upward:** `ancestors(slug)`
 - **Siblings:** `ancestors(slug)[0]` gives parent → `toc(parentSlug, 0)` gives siblings
 
-### `fetch(slug)` — Full Document with Subtree
+### `fetchDocument(slug)` — Full Document with Subtree
 
 Returns the document and its full subtree. Returns `null` if not found. No array overload.
 
@@ -456,11 +456,11 @@ interface Document<T = Record<string, unknown>> {
   title: string | null;
   chunk: string | null;
   meta: T;
-  children: Document<T>[];  // populated by fetch() / toc()
+  children: Document<T>[];  // populated by fetchDocument() / toc()
 }
 ```
 
-### `fetchMany(slugs[])` — Batch Fetch with Subtrees
+### `fetchDocuments(slugs[])` — Batch Fetch with Subtrees
 
 Fetches multiple documents (each with subtree) in one call. Missing slugs skipped.
 
@@ -613,7 +613,7 @@ export interface SearchParams { ... }
 - `generateSkill`, `GenerateSkillOptions`
 - `summarize` (standalone function) — replaced by `summarizeFile` / `summarizeLLM` operators
 - `SummarizeOptions`, `SummarizeFileOptions` (replaced by operator options)
-- `get(slug[])` overload — replaced by `fetchMany()`
+- `get(slug[])` overload — replaced by `fetchDocuments()`
 - `SearchResults` wrapper type — search returns `SearchHit[]` directly
 
 ---
@@ -673,7 +673,7 @@ export interface SearchParams { ... }
 | `tests/skill.test.ts` | Deleted. |
 | `tests/summarize.test.ts` | Replaced by operator tests. |
 | `tests/bundle.test.ts` | Rewritten for pipe + materialize. |
-| `tests/query.test.ts` | Updated for new API (ancestors, fetchMany, simplified search). |
+| `tests/query.test.ts` | Updated for new API (ancestors, fetchDocuments, simplified search). |
 | `tests/cli.test.ts` | Updated for new CLI surface. |
 | `tests/parser.test.ts` | Moved to operator tests. |
 | `tests/walker.test.ts` | Moved to operator tests. |
@@ -687,7 +687,7 @@ export interface SearchParams { ... }
 Users upgrading from v0.x to v2.x:
 
 1. `bundle()` no longer accepts `--home`. Use `KB.ofDirectory()` or a custom KB implementation.
-2. `get([slug1, slug2])` → `fetchMany([slug1, slug2])`.
+2. `get([slug1, slug2])` → `fetchDocuments([slug1, slug2])`.
 3. `search()` returns `SearchHit[]` directly, not `{ total, hits }`.
 4. Navigation via `parent`/`prev`/`next` fields → use `ancestors(slug)` and `toc(slug, 0)`.
 5. `summarize()` → use `summarizeFile()` or `summarizeLLM()` operators with pipe.
