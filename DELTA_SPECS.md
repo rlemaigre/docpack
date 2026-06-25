@@ -40,6 +40,8 @@ interface KB {
   root(): string;
   /** Fetch a document by slug. Returns null if not found. */
   fetch(slug: string): Document | null;
+  /** Fetch multiple documents by slug. Missing slugs skipped. */
+  fetchMany(slugs: string[]): Document[];
   /** Slugs of direct children, in order. Empty array for leaves. */
   fetchChildren(slug: string): string[];
 }
