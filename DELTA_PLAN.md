@@ -37,7 +37,7 @@ The lazy read handle and the write path.
 Extract bundler logic into operators.
 
 - [ ] **3.1** Add `src/operators/index.ts` — `Operator` type, exports
-- [ ] **3.2** Add `src/kb/of.ts` — `KB.of(dir)` factory. Reads filesystem → flat KB: synthetic root + atomic file docs (chunk = raw text). Zero parsing.
+- [ ] **3.2** Add `src/kb/of.ts` — `KB.ofDirectory(path, glob)` factory. Reads filesystem → flat KB: synthetic root + atomic file docs (chunk = raw text). Zero parsing.
 - [ ] **3.3** Add `src/operators/parse-headings.ts` — `parseHeadings()` splits chunks on ATX headings
 - [ ] **3.4** Add `src/operators/insert-introductions.ts` — `insertIntroductions()` moves preamble to synthetic children
 - [ ] **3.5** Add `src/operators/resolve-collisions.ts` — `resolveCollisions()` disambiguates slugs
@@ -54,7 +54,7 @@ Extract bundler logic into operators.
 Compose operators and materialize.
 
 - [ ] **4.1** Add `src/pipeline.ts` — `pipeline(operators[], output, options)` composes operators, traverses result, materializes to SQLite
-- [ ] **4.2** Rewrite `src/bundler/index.ts` — `bundle()` becomes a convenience wrapper: `pipeline([ingest, parseHeadings, ...], output, options)`
+- [ ] **4.2** Rewrite `src/bundler/index.ts` — `bundle()` becomes a convenience wrapper: `pipeline(KB.ofDirectory(input), [parseHeadings, ...], output, options)`
 - [ ] **4.3** Delete old bundler files: `src/bundler/db.ts`, `src/bundler/walker.ts`, `src/bundler/parser.ts`, `src/bundler/link-rewriter.ts` (logic moved to operators)
 
 **Tests:** Full pipeline integration test. Input dir → pipeline → query KB → assert correct tree.
