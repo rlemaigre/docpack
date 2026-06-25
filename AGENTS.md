@@ -76,27 +76,18 @@ Spec-Driven project management. Specifications : [SPECS](SPECS.md)
 
 1. Create a feature branch after name negotiation with user.
 2. Negotiate specs with user until understanding lock, then:
-
-   * Create `DELTA_SPECS.md` at project root with first specification delta draft.
-   * Ask for user review.
-   * Update document and iterate until user satisfied.
-
+    1. Create `DELTA_SPECS.md` at project root with first specification delta draft.
+    2. Ask for user review.
+    3. Update document and iterate until user satisfied.
 3. If the change spans multiple files, create the document `DELTA_PLAN.md` at the project root. Negotiate its content with user.
 4. Implement, test, lint.
 5. Once code is green according to linter and tests, create and present the walkthrough.md document to user:
-
-   * If user isn't satisfied, iterate together until work satisfies user.
-
+    1. If user isn't satisfied, iterate together until work satisfies user.
 6. Prepare to merge the branch to main:
-
-   * If one exists, delete `DELTA_PLAN.md`.
-   * Archive specification delta in archived.
-   * Bump version.
-
-7. Merge feature branch into main:
-
-   * Resolve conflicts if any.
-
+    1. If one exists, delete `DELTA_PLAN.md`.
+    2. Archive specification delta in archived.
+    3. Bump version.
+7. Merge feature branch into main and resolve conflicts if any.
 8. Signify feature completion to user, suggest to publish the new version of the project to NPM.
 9. Halt.
 
