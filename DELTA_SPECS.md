@@ -51,13 +51,7 @@ All three methods are lazy — they query SQLite on each call. No caching guaran
 
 ### Operators
 
-Two kinds:
-
 ```ts
-/** 0-ary: reads filesystem, produces initial flat KB. */
-type Ingestor = () => KB;
-
-/** Unary: transforms a KB into a new KB. Lazy wrapper. */
 type Operator = (src: KB) => KB;
 ```
 
@@ -68,39 +62,43 @@ An operator receives a read-only KB and returns a new KB. The returned KB is a w
 - Lazy: no traversal happens until the output KB is consumed.
 - Composable: `op3(op2(op1(kb)))` chains transformations.
 
-**Ingestor** — the seed. Reads a directory and produces a flat KB: synthetic root (`_root`) with one child per file. Each child is an atomic document — `chunk` is the raw file text (Markdown, frontmatter, whatever). Zero parsing, zero structure. The ingestor has no brain.
+A filesystem-backed KB (`ingest(dir)`) is just another implementation of the KB interface — like a SQLite-backed KB or a wrapper KB. No special "ingestor" type.
+
+**Built-in KB implementations:**
+
+| Implementation | Purpose |
+|---|---|
+| `ingest(dir)` | Flat KB backed by filesystem (root + raw file docs). |
 
 **Built-in operators:**
 
-| Operator | Kind | Purpose |
-|---|---|---|
-| `ingest(dir)` | Ingestor | Read directory → flat KB (root + raw file docs). |
-| `parseHeadings()` | Unary | Split chunks on ATX headings → recursive section tree. |
-| `insertIntroductions()` | Unary | Move preamble content into synthetic "Introduction" children. |
-| `resolveCollisions()` | Unary | Disambiguate duplicate slugs (cross-file and section). |
-| `rewriteLinks()` | Unary | Rewrite relative `.md` links to `docpack://slug` references. |
-| `summarizeFile(path)` | Unary | Import summaries from a JSONL file. |
-| `summarizeLLM(opts)` | Unary | Bottom-up tree fold with an LLM endpoint. |
+| Operator | Purpose |
+|---|---|
+| `parseHeadings()` | Split chunks on ATX headings → recursive section tree. |
+| `insertIntroductions()` | Move preamble content into synthetic "Introduction" children. |
+| `resolveCollisions()` | Disambiguate duplicate slugs (cross-file and section). |
+| `rewriteLinks()` | Rewrite relative `.md` links to `docpack://slug` references. |
+| `summarizeFile(path)` | Import summaries from a JSONL file. |
+| `summarizeLLM(opts)` | Bottom-up tree fold with an LLM endpoint. |
 
 ### The Pipeline
 
 ```ts
 /**
- * Chain an ingestor + operators, materialize the result into a SQLite knowledge base.
- *
- * The first element is always an Ingestor (0-ary, reads filesystem).
- * Remaining elements are Operators (unary, transform KB → KB).
+ * Apply operators to a source KB, materialize the result into a SQLite knowledge base.
  *
  * Traverses the composed KB tree, writes nodes and closure table to SQLite,
  * syncs FTS5 index, writes manifest.
  *
- * @param steps - [ingest, op1, op2, ...] applied left-to-right.
+ * @param source - Source KB (filesystem-backed, SQLite-backed, or any KB implementation).
+ * @param operators - Operators applied left-to-right (first wraps source, last wraps all).
  * @param output - Path to output directory (produces output/docpack.db + output/docpack.yaml).
  * @param options - Manifest metadata (description, url).
  * @returns Bundle statistics.
  */
 function pipeline(
-  steps: [Ingestor, ...Operator[]],
+  source: KB,
+  operators: Operator[],
   output: string,
   options?: PipelineOptions,
 ): BundleStats;
@@ -123,12 +121,12 @@ Usage:
 import { pipeline, ingest, parseHeadings, insertIntroductions, resolveCollisions, rewriteLinks } from "@rlemaigre/docpack";
 
 pipeline(
+  ingest("./docs"),             // source KB: flat tree, raw file text
   [
-    ingest("./docs"),           // 0-ary: flat KB, raw file text
-    parseHeadings(),            // unary: split on ATX headings → sections
-    insertIntroductions(),      // unary: preamble → synthetic children
-    resolveCollisions(),        // unary: fix duplicate slugs
-    rewriteLinks(),             // unary: relative .md → docpack://slug
+    parseHeadings(),            // split on ATX headings → sections
+    insertIntroductions(),      // preamble → synthetic children
+    resolveCollisions(),        // fix duplicate slugs
+    rewriteLinks(),             // relative .md → docpack://slug
   ],
   "./mykb",
   { description: "Project documentation" },
@@ -376,15 +374,14 @@ Removed: `--home`, `--exported-at`.
 // Core types
 export interface Document { ... }
 export interface KB { ... }
-export type Ingestor = () => KB;                     // 0-ary: filesystem → flat KB
-export type Operator = (src: KB) => KB;              // unary: transform KB → KB
+export type Operator = (src: KB) => KB;
+
+// KB implementations
+export function ingest(dir: string): KB;             // filesystem-backed flat KB
 
 // Pipeline
-export function pipeline(steps: [Ingestor, ...Operator[]], output: string, options?: PipelineOptions): BundleStats;
+export function pipeline(source: KB, operators: Operator[], output: string, options?: PipelineOptions): BundleStats;
 export function bundle(options: BundleOptions): BundleStats;  // convenience wrapper
-
-// Ingestor
-export function ingest(dir: string): Ingestor;
 
 // Operators
 export function parseHeadings(): Operator;
@@ -451,7 +448,7 @@ export interface SearchParams { ... }
 | File | Purpose |
 |---|---|
 | `src/operators/index.ts` | Operator exports and types. |
-| `src/operators/ingest.ts` | `ingest(dir)` ingestor — filesystem → flat KB (root + raw file docs). |
+| `src/kb/ingest.ts` | `ingest(dir)` — filesystem-backed KB implementation (root + raw file docs). |
 | `src/operators/parse-headings.ts` | `parseHeadings()` operator — ATX heading parsing. |
 | `src/operators/insert-introductions.ts` | `insertIntroductions()` operator — synthetic intro sections. |
 | `src/operators/resolve-collisions.ts` | `resolveCollisions()` operator — slug disambiguation. |
