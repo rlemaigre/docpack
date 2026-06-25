@@ -81,6 +81,8 @@ interface KB<T = Record<string, unknown>> {
   fetch(slug: string): Document<T> | null;
   /** Slugs of direct children, in order. Empty array for leaves. */
   fetchChildren(slug: string): string[];
+  /** Runtime Zod schema for meta. Attached by KB.ofDirectory / operators. Used by materialize. */
+  readonly metaSchema?: z.ZodType<T>;
 }
 ```
 
@@ -216,11 +218,9 @@ function materialize<T>(
 interface MaterializeOptions {
   description?: string;
   url?: string;
-  /** Zod schema for meta. Extracts keys to create generated columns and indexes. */
-  schema?: z.ZodType<unknown>;
 }
 
-When `schema` is provided, materialize extracts all keys and creates generated columns:
+When the KB has a `metaSchema`, materialize extracts all keys and creates generated columns:
 
 ```sql
 ALTER TABLE nodes ADD COLUMN _author TEXT GENERATED ALWAYS AS (json_extract(meta, '$.author')) STORED;
@@ -234,7 +234,10 @@ const MyMeta = z.object({
   date: z.string().optional(),
 });
 
-materialize(kb, output, { schema: MyMeta });
+const kb = KB.ofDirectory("./docs", { schema: MyMeta });
+// kb.metaSchema is MyMeta — materialize reads it automatically
+
+materialize(kb, output);
 // auto-generates: _title, _author, _date columns + indexes
 // query: SELECT * FROM nodes WHERE _author = 'Jane'
 ```
@@ -500,8 +503,8 @@ export type Operator<T = Record<string, unknown>> = (src: KB<T>) => KB<T>;
 
 // KB factory
 export const KB: {
-  ofFile(path: string): KB<FileMeta>;                        // single file
-  ofDirectory(path: string, glob?: string): KB<FileMeta>;    // directory, glob filter
+  ofFile<T = FileMeta>(path: string, opts?: { schema?: z.ZodType<T> }): KB<T>;
+  ofDirectory<T = FileMeta>(path: string, glob?: string, opts?: { schema?: z.ZodType<T> }): KB<T>;
 };
 
 // KB set operations
