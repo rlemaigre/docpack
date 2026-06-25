@@ -37,7 +37,6 @@ A knowledge base is a document tree stored in SQLite. The tree has a single root
 ```ts
 interface Document {
   slug: string;           // globally unique identifier
-  type: "file" | "section";
   title: string;
   chunk: string | null;   // self content (Markdown). null for internal nodes.
   summary: string | null; // AI-generated subtree summary. optional.
@@ -200,7 +199,6 @@ The closure table IS the hierarchy. The nodes table carries no structural inform
 ```sql
 CREATE TABLE nodes (
   slug    TEXT PRIMARY KEY,
-  type    TEXT NOT NULL CHECK (type IN ('file', 'section')),
   title   TEXT NOT NULL,
   chunk   TEXT,
   summary TEXT
