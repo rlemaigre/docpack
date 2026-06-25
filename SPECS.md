@@ -1,620 +1,397 @@
-# Project
+# Delta Specs — docpack v2
 
-`docpack` — a TypeScript library for turning a directory of Markdown files into a portable, queryable knowledge base, and querying it back. Published as `@rlemaigre/docpack`. The CLI wraps the same TypeScript library for both bundling and querying.
+**Branch:** `docpack2`
+**Baseline:** v0.7.6 (main)
+**Nature:** Complete architectural overhaul. Breaking changes throughout.
 
-# Language
+---
 
-TypeScript.
+## Why
 
-# Use Cases
+Shift from a monolithic bundler with bundled features (skill generation, MCP, summaries) to a minimal primitive set. AI agents in user land compose and extend. The bundler becomes a chain of composable operators.
 
-1. **AI skill generation** — an agent uses the higher-order [Agent Skill](#agent-skill) to turn a folder of documents into a self-contained skill it (or another agent) can load. See [Agent Skill](#agent-skill).
-2. **Mini-RAG** — efficient retrieval from a local knowledge base without a vector DB or server. FTS + structured queries + optional embeddings.
-3. **Unified bundle** — any directory of Markdown files → single portable file. Language-agnostic consumption via the query CLI.
+---
 
-# Contracts
+## Removed
 
-* **CLI** — single binary for both sides of the pipeline. Consumed via `npx @rlemaigre/docpack` or installed as a dependency.
-* **Bundling TypeScript library** (`bundle()`) — for AI agents and developers that create knowledge bases programmatically.
-* **Querying TypeScript library** (`query()`) — for AI agents and developers that consume knowledge bases programmatically.
-* **DB schema** — internal implementation detail. Not a public contract. May change at any time.
-
-# Concepts
-
-## Bundler
-
-Recursively walks a directory of Markdown files, flattening the filesystem into a uniform tree of knowledge where all ingested files are root documents and directory structure is discarded. The hierarchy comes from Markdown headings within each file, and from links between files.
-
-1. Collects all files in the input directory (flat, no directory nodes).
-2. For each file:
-  1. Reads the file as Markdown.
-  2. Rewrites relative `.md` links to `docpack://slug` references.
-  3. Parses headings to extract the internal hierarchy and extends the tree with one `Document` for each section.
-
-The bundler runs entirely within a single synchronous SQLite transaction — no async involved. Input files are assumed to be Markdown; conversion from other formats is the caller's responsibility.
-
-### Home File
-
-The `--home` flag is mandatory. It points to a Markdown file that serves as the primary entry point into the knowledge base. This file is bundled like any other — it becomes a root document with its own section tree. The manifest records its slug.
-
-**What it is:** a Markdown file with headings, subsections, and `docpack://slug` links that organize the KB's content into a meaningful navigation structure. It is a semantic table of contents — unlike directories, it reflects how the documents relate to each other, not how they were stored on disk.
-
-**Why it is necessary:** without directory nodes, all files are flat root documents. With many files (hundreds, thousands), agents need an entry point to orient themselves before falling back to `search()`. The home file provides classification and reading order.
-
-**When to create it:** before bundling, as a preprocessing step — just like converting files to Markdown. The user (or an agent) writes the file and places it alongside the other input files.
-
-**Where it goes:** anywhere in the input directory. The `--home` flag points to it by path.
-
-**Example** (`toc.md`):
-```markdown
-# Documentation
-
-## Getting Started
-
-* [Installation](docpack://getting-started-installation)
-* [Configuration](docpack://getting-started-configuration)
-
-## API Reference
-
-* [Authentication](docpack://api-auth)
-* [Endpoints](docpack://api-endpoints)
-```
-
-When bundled, this file becomes the `home` document. Agents call `toc(home)` to navigate the KB's structure, following `docpack://slug` links to drill into content.
-
-## Knowledge Base
-
-A directory containing two files:
-
-```
-mykb/
-  docpack.db        # SQLite knowledge base
-  docpack.yaml      # human-readable manifest
-```
-
-`docpack.yaml` is a metadata manifest written by `bundle()`. Describes the KB's provenance and scope. Human-readable on GitHub — no CLI needed to understand what's inside.
-
-```yaml
-version: "0.3.0"        # docpack version that created this KB
-totalChunks: 42
-totalBytes: 133714
-home: toc               # slug of the primary entry file
-description: null       # human-readable description, if supplied
-url: null               # source URL, if supplied
-exportedAt: "2025-01-15T10:30:00.000Z"  # source export date or bundle time
-```
-
-* `home` — slug of the primary entry file (mandatory, supplied via `--home`).
-* `description` — human-readable description of what the KB covers. Optional.
-* `url` — source URL (wiki, website, etc.). Optional.
-* `exportedAt` — date of source data export/scraping (ISO 8601). Auto-set to bundle time if omitted.
-* Agents discover content via `home` → follow links → `search()`.
-
-Path resolution is explicit: the consumer always points to the directory containing `docpack.db` and `docpack.yaml`. No suffix guessing.
-
-Consumers query the KB via the CLI (`npx @rlemaigre/docpack toc ./mykb "slug"`) or the TypeScript library (`query("./mykb")`). Direct SQL access is not supported — the schema is an internal detail and may change.
-
-## Agent Skill
-
-A **higher-order skill** (or skill factory) that an agent loads to learn how to produce consumable skills from a directory of documents.
-
-The higher-order skill teaches the agent:
-
-* How to import and call the `bundle()` function.
-* How to prepare Markdown files as input.
-* How to trigger the bundling process and handle progress/errors.
-* How to query the resulting KB using `toc()` and `get()`.
-* How to trigger the skill generation post-processing step.
-
-Guided by the higher-order skill, the agent follows three steps:
-
-1. **Bundle** — the agent calls `bundle()` on a directory of Markdown files, producing a KB directory (`docpack.db` + `docpack.yaml`).
-2. **Explore** — the agent queries the KB using `toc()` and `get()` to understand its structure and content.
-3. **Generate** — the agent triggers a post-processing step, supplying natural language context (what the KB covers, when to use it, domain specifics). This fills a `SKILL.md` template.
-
-### Skill Package Output
-
-The generated skill is a self-contained directory:
-
-```
-<output>/
-  SKILL.md
-  references/
-    docpack.db
-    docpack.yaml
-  scripts/
-    docpack.mjs
-```
-
-* `SKILL.md` — auto-generated from manifest metadata + home TOC (depth 1) + `--use-when` text, rendered via Eta template (`src/skill/templates/skill.md.eta`). Contains frontmatter (`name`, `description`), KB overview section, structure section, and usage section with CLI commands.
-* `references/` — the KB directory (`docpack.db` + `docpack.yaml`).
-* `scripts/docpack.mjs` — thin wrapper script (~1KB) that pins `npx @rlemaigre/docpack@<version>` using the version from package.json at generation time. Resolves `references/` path relative to `import.meta.dirname`. Accepts subcommands via CLI args: `manifest`, `toc <slug> [--depth <n|full>]`, `get --slug <slug> [--slug <slug>]`, `search <query> [--limit <n>] [--offset <n>]`.
-
-The generated skill is self-contained. Any agent loading it can query the KB using the bundled `scripts/docpack.mjs` wrapper without needing the higher-order skill or docpack source code.
-
-Skill generation is an optional post-processing step, separate from bundling. The bundler produces data; the skill generator produces agent instructions.
-
-# Data Model
-
-## Document
-
-One shape for all documents — files and sections:
-
-```
-Document = { type : "file" | "section", title : string, slug : string, index : number, chunk : string?, summary : string?, children: Document[] }
-```
-
-* `type` — distinguishes files (ingested source documents) from sections (Markdown headings). All files are root documents (`parent_slug IS NULL`). There are no directory nodes.
-* `title` — human-readable label.
-* `slug` — globally unique identifier.
-* `index` — position among siblings. Assigned by the bundler (filesystem sort order or heading order).
-* `chunk` — *self content* of the document only, does NOT aggregate the whole subtree. Present only on leaf documents. Internal nodes (documents with children) always have `chunk: null` — their preamble content is stored in a synthetic "Introduction" child section.
-* `summary` — AI-generated summary of the entire subtree (chunk + all descendants). Optional. Produced by post-processing.
-* `children` — always present. Empty `[]` = leaf. Non-empty = internal node (container, `chunk` is null).
-
-The `Document` shape is uniform across all levels — a file, a section, and a leaf section all share the same structure.
-
-## Hierarchy
-
-The hierarchy is flat at the top, deep within files:
-
-1. **Root level** — all ingested files are root documents (`parent_slug IS NULL`). Directory structure is discarded.
-2. **File level** — Markdown headings form the internal hierarchy of each file (sections → subsections → leaves). Built by the bundler from ATX headings.
-
-Cross-file navigation is achieved through `docpack://slug` links rewritten by the bundler, and through the home file's semantic table of contents. Files and sections can be internal or leaf documents.
-
-## Slug Generation
-
-* Uses `@sindresorhus/slugify` for heading text → slug.
-* File documents: slug from basename (without extension).
-* Section documents: slug from heading text.
-* Synthetic "Introduction" sections: `<parent-slug>-introduction` (e.g. `readme-introduction`, `api-auth-introduction`).
-* Empty slug (e.g. CJK, punctuation-only): fallback to `_N` where N is the document's index.
-* Cross-file collisions: with no directory nodes, colliding basenames are disambiguated using the original relative path components. E.g. two `README.md` files at `guide/README.md` and `api/README.md` get slugs `guide-readme` and `api-readme`. If that still collides, fall back to `_N`.
-* Section collisions: prefix the conflicting slug with its parent slug until globally unique.
-
-# Text Formats
-
-## Input
-
-The bundler recursively walks the input directory and reads every file as **Markdown text (UTF-8)**. No file type filtering or conversion is performed — all files are treated as Markdown. Directory structure is not preserved — all files become root documents.
-
-* Files that are not valid Markdown will still be ingested. The parser scans for ATX headings; files with no headings become single-chunk documents.
-* Non-text files (binary, images, etc.) will fail to parse gracefully — they become empty or garbled documents. The caller should exclude such files before bundling.
-* Conversion from other formats (PDF, DOCX, etc.) is the caller's responsibility.
-
-## Markdown Parsing
-
-* **Headings** — ATX only (`#` through `######`). Regex: `^(#{1,6})\s+(.+)$`.
-* **Content before first heading** — parsed as the file document's self content, then moved into a synthetic "Introduction" section if the file also has headings.
-* **Zero headings** — single chunk: file document with content, no children. Unchanged.
-* **Content between headings** — becomes chunk content for that heading's document. For nested headings (e.g. `## A` followed by `### B`), content between `## A` and `### B` belongs to the `A` document.
-* **Synthetic Introduction** — after parsing, any document (file, section, or subsection) that has both a non-empty chunk AND non-empty children gets its chunk moved into a synthetic "Introduction" section as the first child. Applied recursively. Result: all chunks live in leaf documents; internal nodes always have `chunk: null`.
-
-## Link Rewriting
-
-During bundling, relative Markdown links that resolve to ingested files are rewritten to `docpack://slug` references:
-
-* `[](path/to/file.md)` → `[](docpack://slug)`
-* `[](path/to/file.md#heading)` → `[](docpack://slug#heading)`
-* `[](path/to/file)` → resolves if `path/to/file.md` exists
-* External URLs, fragment-only links (`[](#heading)`), and broken links are left unchanged
-
-An LLM reading a chunk can resolve `docpack://slug` directly via `docpack get --slug <slug>`. Broken links left as-is signal that resolution will fail.
-
-## Output — Chunk Content
-
-Individual chunk content is Markdown. Stored as TEXT in the knowledge base (`chunk` column). FTS5 maintains its own indexed copy — no live sync needed.
-
-## Output — XML
-
-`get()` returns a typed `Document` tree. The CLI serializes it to XML on stdout,
-always wrapped in a `<documents>` root element containing one or more `<document>` elements.
-
-### documents
-
-```
-<documents>
-  <document slug="..." title="..." level="N" depth="N" parent="..." prev="..." next="...">
-    <chunk>...</chunk>              <!-- optional: Markdown self-content -->
-    <children> <!-- zero or more child document elements -->
-      <document>...</document>
-    </children>
-  </document>
-</documents>
-```
-
-* `<documents>` — root element. Contains one `<document>` per requested slug.
-* `<chunk>` — optional. Markdown self-content. Absent for documents without content.
-* `<children>` — zero or more child `<document>` elements. Empty for leaf documents. Children have semantic ordering (heading order within a file).
-* `parent` — optional. Slug of the parent document. Absent for root documents.
-* `prev` / `next` — optional. Slugs of sibling documents in reading order. Present only for sections (ordered children of a file).
-* `level` — hops from KB root to this document (root = 0). Preserved in subtrees.
-* `depth` — hops from this document to its deepest descendant (leaf = 0).
-* Attributes (`slug`, `title`, `level`, `depth`, `parent`, `prev`, `next`) are machine-parseable and can be queried by scripts operating on the XML output.
-* Unlimited nesting depth — no Markdown h6 limitation.
-* Symmetric structure all the way down — no special case for leaf documents.
-
-### Examples
-
-Leaf section (`get --slug api-auth`):
-```xml
-<documents>
-  <document slug="api-auth" title="Authentication" level="2" depth="0" parent="api" prev="api-overview" next="api-billing">
-    <chunk>
-# Authentication
-
-OAuth details...
-    </chunk>
-    <children/>
-  </document>
-</documents>
-```
-
-Internal document (`get --slug readme`):
-```xml
-<documents>
-  <document slug="readme" title="README" level="0" depth="2">
-    <chunk>
-Intro text...
-    </chunk>
-    <children>
-    <document slug="getting-started" title="Getting Started" level="1" depth="1" parent="readme">
-      <chunk>
-Getting started content...
-      </chunk>
-      <children/>
-    </document>
-    <document slug="api-reference" title="API Reference" level="1" depth="1" parent="readme">
-      <chunk>
-API reference content...
-      </chunk>
-      <children/>
-    </document>
-    </children>
-  </document>
-</documents>
-```
-
-# API — Bundler
-
-## TypeScript Library
-
-Implementation. The CLI wraps this.
-
-```ts
-import { bundle } from "@rlemaigre/docpack";
-
-interface BundleOptions {
-  input: string;              // path to input directory
-  output: string;             // path to output directory (e.g. "./mykb" — produces mykb/docpack.db + mykb/docpack.yaml)
-  home?: string;              // path to the primary entry file (mandatory via CLI, optional in library — manifest records null if omitted)
-  description?: string;       // human-readable description of what the KB covers
-  url?: string;               // source URL (wiki, website, etc.)
-  exportedAt?: string;        // date of source data export (ISO 8601), auto-set to bundle time if omitted
-  onProgress?: (path: string, processed: number, total: number) => void;
-  onError?: (path: string, error: string) => void;
-}
-
-interface BundleStats {
-  filesProcessed: number;
-  totalChunks: number;
-  totalBytes: number;
-}
-
-bundle(options): BundleStats;
-```
-
-* The bundler reads each file as Markdown, parses headings to build the chunk hierarchy.
-* Relative `.md` links in chunk content are rewritten to `docpack://slug` references.
-* `home` — path to the primary entry file (mandatory via CLI, optional in library). Resolved to a slug and recorded in the manifest. Omitted → manifest records `home: null`.
-* `onProgress` — called per file. Caller can display a spinner, log, or ignore.
-* `onError` — called per failed file. Bundler skips and keeps going.
-* Produces `<output>/docpack.db` (SQLite) and `<output>/docpack.yaml` (manifest). Creates parent dirs. Overwrites existing output.
-* FTS5 index synced once at bundle time (after all chunks inserted). No triggers.
-
-### Skill Generation
-
-Produce a self-contained agent skill package from an existing KB.
-
-```ts
-import { generateSkill } from "@rlemaigre/docpack";
-
-interface GenerateSkillOptions {
-  kb: string;                 // path to KB directory (resolves docpack.db)
-  useWhen: string;            // imperative description of when to use the skill
-  output: string;             // path to output skill directory
-}
-
-generateSkill(options);
-```
-
-Reads the KB manifest and home TOC (depth 1), renders the SKILL.md template, copies the KB to `references/`, and generates `scripts/docpack.mjs` wrapper. Template: `src/skill/templates/skill.md.eta`.
-
-### Summaries
-
-Two modes for post-processing summarization. Both use **upsert semantics** — existing summaries for untouched slugs are preserved.
-
-#### JSONL file mode
-
-Import summaries from a JSONL file produced by any tool (LLM script, human, etc.). No code to write.
-
-```ts
-import { summarize } from "@rlemaigre/docpack";
-
-interface SummarizeFileOptions {
-  input: string;              // path to KB directory (resolves docpack.db)
-  summaries: string;          // path to JSONL file
-}
-
-summarize(options);
-```
-
-JSONL format — one summary per line:
-```jsonl
-{"slug":"getting-started","summary":"Overview of setup, configuration, and first steps."}
-{"slug":"api-reference","summary":"Complete API documentation covering auth, billing, and webhooks."}
-```
-
-* Unknown slugs are skipped with a warning to stderr.
-* Malformed lines are skipped with a warning.
-* Duplicate slugs: last value wins.
-* Upserts into `nodes.summary`.
-
-#### LLM fold mode
-
-Built-in bottom-up tree fold. Docpack traverses the tree and calls an OpenAI-compatible LLM endpoint with a user-supplied prompt template. No code to write.
-
-```ts
-import { summarize } from "@rlemaigre/docpack";
-
-interface SummarizeLLMOptions {
-  input: string;
-  mode: "llm";
-  model: string;              // model name sent to the endpoint
-  endpoint: string;           // base URL, e.g. "http://localhost:8000/v1"
-  prompt: string;             // template with {title}, {chunk}, {children_summaries}, etc.
-  concurrency?: number;       // parallel requests per level (default: 8)
-  minContentLength?: number;  // pass-through threshold for small leaves (default: 0)
-  apiKey?: string;            // optional, for cloud endpoints
-}
-
-summarize(options);
-```
-
-**Traversal:** bottom-up, level by level. All nodes at the same depth are processed in parallel (bounded by `concurrency`). Parents wait for all children.
-
-**Prompt template variables:**
-
-| Variable | Description |
+| Feature | Reason |
 |---|---|
-| `{title}` | Document's own title. |
-| `{slug}` | Document's own slug. |
-| `{chunk}` | Document's own content (markdown). Always empty for internal nodes (their content lives in the synthetic Introduction child). |
-| `{children_titles}` | Ordered list of children titles, one per line. |
-| `{children_summaries}` | Ordered list of `title: summary` pairs, one per line. |
-| `{children_count}` | Number of children. |
+| Skill generation (`generateSkill`) | Heavily collection-specific. User land. |
+| MCP server (`serve --mcp`) | Trivial to wire. Tools are user-specific. |
+| Multi-slug `get([slug1, slug2])` | Client loops and aggregates. |
+| `parent`/`prev`/`next` fields on `Document` | Replaced by `ancestors()` query primitive. |
+| `prev`/`next`/`parent` on `SearchHit` | Same reasoning. Client calls `ancestors()` if needed. |
+| `level`/`depth` fields on `Document` | Derivable from `ancestors()` and tree walk. |
+| `meta` field on `Document` | Not needed in the stripped model. |
+| `home` manifest field | With single synthetic root, the entry point is always known. |
+| `exportedAt` manifest field | User land concern. |
 
-**Pass-through:** if `doc.children.length === 0` AND (`doc.chunk` is absent OR `doc.chunk.length < minContentLength`), skip the LLM call. Use the chunk as-is if present, or skip for empty leaves.
+## New Core Concepts
 
-**Endpoint:** any OpenAI-compatible `/v1/chat/completions` endpoint (vLLM, Ollama, LM Studio, cloud OpenAI).
+### Everything Is a Document
 
-## CLI
+A knowledge base is a document tree stored in SQLite. The tree has a single root (synthetic if multiple source files).
 
-Wraps the TypeScript library. Calls `bundle()` internally.
-
-```bash
-docpack bundle --input ./docs --output ./mykb --home ./docs/toc.md
-```
-
-* `--input` — path to input directory (required).
-* `--output` — path to output directory (required).
-* `--home` — path to the primary entry file (required). Create a Markdown TOC file with sections and `docpack://slug` links, then point `--home` to it.
-* `--description` — human-readable description of the KB (optional).
-* `--url` — source URL (optional).
-* `--exported-at` — date of source data export, ISO 8601 (optional).
-
-Progress to stderr. Stats as JSON to stdout.
-
-### Summaries
-
-Two modes via CLI flags.
-
-**JSONL file mode** (default):
-```bash
-docpack summarize ./mykb --summaries ./summaries.jsonl
-```
-
-**LLM fold mode:**
-```bash
-docpack summarize ./mykb \
-  --mode llm \
-  --model qwen3-8b \
-  --endpoint http://localhost:8000/v1 \
-  --prompt ./prompt.txt \
-  --concurrency 32 \
-  --min-content-length 200
-```
-
-* `--summaries` — path to JSONL file (file mode).
-* `--mode llm` — use built-in LLM fold mode.
-* `--model` — model name (LLM mode, required).
-* `--endpoint` — OpenAI-compatible endpoint URL (LLM mode, required).
-* `--prompt` — path to prompt template file (LLM mode, required).
-* `--concurrency` — max parallel LLM requests per level (LLM mode, default: 8).
-* `--min-content-length` — skip LLM call for leaf documents shorter than this (LLM mode).
-* `--api-key` — API key for cloud endpoints (LLM mode, optional).
-
-Upserts summaries into the KB.
-
-# API — Query
-
-Access to the knowledge base for AI agents is gated by calling `manifest()` to discover entry point slugs and statistics. `toc()` and `get()` require a slug. `search()` is the exception — it bypasses the gate to enable keyword discovery.
-
-## TypeScript Library
-
-Implementation. The CLI wraps this.
+### The Node Type
 
 ```ts
-import { query } from "@rlemaigre/docpack";
-
-interface Summary {
-  chunkCount: number;     // descendants that have content
-  totalBytes: number;     // sum of chunk bytes in subtree
-  depth: number;          // max depth below this document
-  text?: string;          // AI-generated, present when summaries were generated
+interface Node<T = Record<string, unknown>> {
+  slug: string;                      // globally unique identifier
+  title: string | null;              // display name (populated by operators)
+  chunk: string | null;              // self content (Markdown). null for internal nodes.
+  meta: T;                           // typed metadata (frontmatter, ingestion info, operator output)
 }
-
-interface TOC {
-  slug: string;
-  title: string;
-  children: TOC[] | Summary;    // [] = leaf, TOC[] = expanded, Summary = clipped
-}
-
-interface Document {
-  slug: string;
-  title: string;
-  level: number;      // hops from root to this document
-  depth: number;      // hops from this document to deepest descendant
-  parent?: string;    // slug of parent, absent for roots
-  prev?: string;      // slug of previous sibling, sections only
-  next?: string;      // slug of next sibling, sections only
-  chunk?: string;
-  children: Document[];
-}
-
-interface Manifest {
-  version: string;
-  totalChunks: number;
-  totalBytes: number;
-  home: string | null;
-  description: string | null;
-  url: string | null;
-  exportedAt: string;
-}
-
-interface SearchHit {
-  slug: string;
-  snippet: string;      // excerpt around matched terms, <b>/</b> markers, ... ellipsis
-  prev?: string;        // slug of previous sibling, sections only
-  next?: string;        // slug of next sibling, sections only
-  parent?: string;      // slug of parent document
-}
-
-interface SearchResults {
-  total: number;        // total matching nodes
-  hits: SearchHit[];
-}
-
-interface SearchParams {
-  query: string;
-  limit: number;
-  offset: number;
-}
-
-const kb = query("./mykb");  // path is the directory containing docpack.db and docpack.yaml
-
-kb.manifest();                    // Manifest — reads docpack.yaml
-kb.toc("slug", depth);            // TOC — depth is number | 'full'
-kb.get("slug");                   // Document | null — single slug
-kb.get(["slug1", "slug2"]);       // Document[] — multiple slugs, missing ones skipped
-kb.search(params);    // SearchResults
 ```
 
-* `manifest()` — reads `docpack.yaml`. Returns version, aggregate statistics, and metadata fields (`home`, `description`, `url`, `exportedAt`). Compact — no file enumeration.
-* `toc(slug, depth)` — returns the hierarchy rooted at `slug`. `depth` is a number (levels to unfold, `0` = root only) or `'full'` (full tree, no clipping). Clipped subtrees carry `Summary` for semantic discovery.
-* `get(slug)` — returns the document and its subtree. Returns `null` if the slug does not exist. `get([slug1, slug2, ...])` fetches multiple documents at once, skipping missing slugs.
-* `search(params)` — full-text search over node titles and chunk content using SQLite FTS5. `query` accepts the full FTS5 query language (plain words, phrases, AND/OR/NOT, prefix, NEAR, column-specific). Results ordered by BM25 score. Each hit carries a `snippet` excerpt (~30 tokens around matched terms with `<b>`/`</b>` markers), `prev`/`next` sibling navigation slugs (sections only), and `parent` slug. FTS indexes only leaf documents — internal nodes (containers with children) are excluded. All hits are guaranteed to be leaves, so `get(slug)` is always a single-row lookup. Structure navigation is via `toc()`, not search. `limit` and `offset` are required. `total` gives the full result set size.
-* `parent`, `prev`, `next` on any `Document` — navigation slugs derived from structure. `parent` is present on all non-root documents. `prev`/`next` present only on sections (ordered children of a file). Absent when not applicable.
-* `Summary` merges structural stats and semantic text. On clipped TOC documents, aggregating summaries across branches lets the agent reconstruct a transversal overview of the entire tree — making TOC the primary semantic discovery tool.
-* `get()` omits `Summary` because the agent already obtained it when navigating via `manifest()` or `toc()` to discover the target slug in the first place.
+Generic over `T`. Default is untyped `Record<string, unknown>`.
 
-## CLI
+**Ingestion output** — `KB.ofDirectory()` and `KB.ofFile()` produce `Node<FileMeta>`:
+- `slug`: derived from absolute path (deterministic, unique across KBs)
+- `title`: null
+- `chunk`: null
+- `meta`: raw file attributes — content, path, basename, size, mtime, ...
 
-Wraps the TypeScript library. Single-shot: reads args, calls TypeScript library, serializes result to stdout, exits.
-
-```bash
-docpack manifest ./mykb              # YAML to stdout (reads docpack.yaml)
-docpack toc ./mykb "slug" --depth 2  # YAML to stdout
-docpack get ./mykb --slug slug1 --slug slug2  # XML to stdout, <documents> wrapper
-docpack search ./mykb "query" --limit 10 --offset 0  # YAML to stdout
+```ts
+interface FileMeta {
+  content: string;
+  path: string;        // absolute path
+  relativePath: string; // relative to root directory (ofDirectory only)
+  basename: string;
+  extname: string;
+  size: number;
+  mtime: number;
+  frontmatter?: Record<string, unknown>; // parsed YAML frontmatter if present
+}
 ```
 
-* Exit 0 — success. Result to stdout (YAML for `manifest`/`toc`, XML with `<documents>` wrapper for `get`).
-* Exit 1 — error. JSON `{ message }` to stderr. Nothing to stdout.
-* Primary consumer is AI agents, not terminal readers.
-* On clipped documents, `children` is a `Summary` (replaces the removed subtree). The agent can aggregate summaries across branches to reconstruct a transversal overview.
-
-### Skill Generation
-
-Produce a self-contained agent skill package from an existing KB.
-
-```bash
-docpack skill <kb> --use-when "<description>" --output <dir>
-```
-
-* `<kb>` — path to existing KB directory (required).
-* `--use-when` — imperative description of when to use the skill (required). Used as the `description` field in SKILL.md frontmatter.
-* `--output` — path to output skill directory (required).
-
-Produces the skill package structure: `SKILL.md`, `references/` (KB copy), `scripts/docpack.mjs` (wrapper). SKILL.md is auto-generated from manifest metadata, home TOC (depth 1), and `--use-when` text.
-
-### MCP Mode
-
-`--mcp` runs the CLI as a long-lived MCP server over stdio. Translates MCP tool calls into TypeScript library calls — same query logic, different protocol.
-
-```bash
-docpack serve ./mykb --mcp    # MCP server over stdio
-```
-
-Exposed tools:
-* `manifest` — returns the KB manifest.
-* `toc(slug, depth)` — returns the table of contents subtree.
-* `get(slug)` — slug is `string` or `string[]`. Returns document(s) as XML with `<documents>` wrapper.
-* `search(query, limit, offset)` — full-text search, returns hits with snippet excerpts and navigation.
-
-# Storage — SQLite
-
-## Schema
+`KB.ofDirectory()` attaches the `FileMeta` schema as `metaSchema` by default. Materialize auto-generates columns for all file attributes — no schema option needed:
 
 ```sql
-CREATE TABLE nodes (
-  slug        TEXT PRIMARY KEY,
-  type        TEXT NOT NULL CHECK (type IN ('file', 'section')),
-  title       TEXT NOT NULL,
-  parent_slug TEXT REFERENCES nodes(slug),
-  idx         INTEGER NOT NULL,
-  chunk       TEXT,  -- Markdown content. FTS5 keeps its own indexed copy.
-  summary     TEXT,
-  UNIQUE (parent_slug, idx)
+-- auto-generated by materialize
+ALTER TABLE nodes ADD COLUMN _path TEXT GENERATED ALWAYS AS (json_extract(meta, '$.path')) STORED;
+ALTER TABLE nodes ADD COLUMN _basename TEXT GENERATED ALWAYS AS (json_extract(meta, '$.basename')) STORED;
+ALTER TABLE nodes ADD COLUMN _extname TEXT GENERATED ALWAYS AS (json_extract(meta, '$.extname')) STORED;
+CREATE INDEX idx_meta_extname ON nodes(_extname);
+```
+
+User-provided schema extends/replaces the default.
+
+**Removed fields:** `type`, `summary`, `index`, `parent`, `prev`, `next`, `level`, `depth`, `children`.
+**Added:** `meta` — container for frontmatter data, ingestion metadata (file path, basename, author, dates), and operator output (e.g. `meta.summary` from summarize operator). Populated by `KB.ofDirectory()` from YAML frontmatter and filesystem info. Extended by operators as needed.
+
+- Ordering: encoded in the closure table (`order` column), not on the document.
+- Navigation: via `KB.fetchChildren()`, `KB.root()`, and the `ancestors()` query primitive.
+- Tree structure: assembled by the consumer from `fetchChildren()` calls, not carried in the document.
+
+### The KB Interface
+
+```ts
+interface KB<T = Record<string, unknown>> {
+  /** Slug of the single root document. */
+  root(): string;
+  /** Fetch a single node by slug (no children). Returns null if not found. */
+  fetchNode(slug: string): Node<T> | null;
+  /** Slugs of direct children, in order. Empty array for leaves. */
+  fetchChildren(slug: string): string[];
+  /** Runtime Zod schema for meta. Attached by KB.ofDirectory / operators. Used by materialize. */
+  readonly metaSchema?: z.ZodType<T>;
+}
+```
+
+Generic over `T` — all documents in a KB share the same meta type. `KB.ofDirectory()` produces `KB<FileMeta>`. Operators preserve or transform the meta type.
+
+Base interface. Two primary implementations:
+
+- **Filesystem KB** (`KB.ofFile(path)`) — single file. Produces `Node<FileMeta>` with slug=from absolute path, title=null, chunk=null, meta=raw file attrs.
+- **Directory KB** (`KB.ofDirectory(path, glob)`) — directory with optional glob filter. Flat tree. Same shape as ofFile.
+- **SQLite KB** (`query<T>(path)`) — same base methods plus efficient query primitives backed by the closure table and FTS5.
+
+```ts
+interface KBQuery<T = Record<string, unknown>> extends KB<T> {
+  fetchNodes(slugs: string[]): Node<T>[];          // batch fetch nodes, missing skipped
+  fetchDocument(slug: string): Document<T> | null; // fetch doc with full subtree
+  fetchDocuments(slugs: string[]): Document<T>[];  // batch fetch docs with subtrees
+  manifest(): Manifest;
+  stats(): BundleStats;
+  where(filter: WhereFilter<T>): Node<T>[];    // type-safe query DSL → SQL WHERE
+  toc(slug: string, depth: number | "full"): TOC;
+  ancestors(slug: string): Document<T>[];
+  search(params: SearchParams): SearchHit[];
+  close(): void;
+}
+
+```ts
+interface WhereFilter<T = Record<string, unknown>> {
+  slug?: string | { in: string[]; notIn?: string[] };
+  title?: string | { like: string; notLike?: string };
+  meta?: Partial<Record<keyof T, any>>;           // key-value matches on meta
+  fts?: string;                                    // full-text search on title+chunk
+  combine?: "AND" | "OR";                          // how to combine clauses (default: AND)
+}
+```
+
+```ts
+const kb = materialize(source, output);
+
+// Filter by meta
+const mdFiles = kb.where({ meta: { extname: '.md' } });
+
+// Filter by title pattern
+const apiDocs = kb.where({ title: { like: 'API%' } });
+
+// Combined filter
+const results = kb.where({
+  meta: { extname: '.md', author: 'Jane' },
+  title: { like: '%guide%' },
+  fts: 'authentication',
+});
+```
+```
+
+All base methods are lazy — queried on each call. No caching guarantee. The consumer controls traversal depth and thus memory usage.
+
+### Adapter
+
+```ts
+function asQuery<T>(kb: KB<T>): KBQuery<T>;
+```
+
+Adapts any KB to KBQuery. Pass-through if the input is already a KBQuery. Otherwise materializes to a temporary SQLite database. Used by operators that need query primitives (ancestors, toc, search) on an arbitrary KB input.
+
+### Operator Helpers
+
+```ts
+function mapDocuments<T>(fn: (doc: Node<T>) => Node<T>): Operator<T>;
+```
+
+Creates an operator that transforms documents without changing hierarchy. Delegates `root()` and `fetchChildren()` to the source KB; wraps `fetch()` to apply the transform.
+
+```ts
+const trimTitles = mapDocuments(doc => ({ ...doc, title: doc.title?.trim() }));
+```
+
+```ts
+function filterDocuments<T>(fn: (doc: Node<T>) => boolean): Operator<T>;
+```
+
+Filters documents out of the KB. Updates `fetchChildren` to exclude filtered docs.
+
+```ts
+const markdownOnly = filterDocuments(doc => doc.meta.extname === '.md');
+const noDrafts = filterDocuments(doc => doc.meta.frontmatter?.draft !== true);
+```
+
+```ts
+function pipe<T>(...ops: Operator<T>[]): Operator<T>;
+```
+
+Composes operators left-to-right into a single operator. Not applied until called with a KB.
+
+```ts
+const preprocess = pipe(
+  Op.parseMarkdown(),
+  Op.parseHeadings(),
+  Op.resolveCollisions(),
+  Op.rewriteLinks(),
+);
+// preprocess is Operator<T> — reusable, not applied yet
+
+materialize(preprocess(kb), output);
+// or
+const enhancedKB = preprocess(kb);
+```
+
+### Operators
+
+```ts
+type Operator<T = Record<string, unknown>> = (src: KB<T>) => KB<T>;
+```
+
+An operator receives a read-only KB and returns a new KB. The returned KB is a wrapper — it delegates to `src` and transforms results on demand. Zero materialization.
+
+**Properties:**
+- Pure: same input KB produces same output KB.
+- Lazy: no traversal happens until the output KB is consumed.
+- Composable: `op3(op2(op1(kb)))` chains transformations.
+
+A filesystem-backed KB is just another implementation of the KB interface — like a SQLite-backed KB or a wrapper KB.
+
+**Typical flow:**
+
+1. `KB.ofDirectory("./docs")` → flat `KB<FileMeta>` (slug=from abs path, title=null, chunk=null, meta=raw file attrs)
+2. `Op.parseMarkdown({ frontmatter: MySchema })` → validates frontmatter, populates slug/title/chunk. Errors on invalid data.
+3. `Op.parseHeadings()` → recursive section tree from chunk content
+4. `Op.resolveCollisions()` → disambiguate duplicate slugs
+5. `Op.rewriteLinks()` → rewrite relative `.md` links to `docpack://slug` references
+6. `Op.summarizeLLM(opts)` → bottom-up tree fold, writes to meta.summary
+
+**Merging KBs:**
+
+```ts
+const kb = KB.union(
+  KB.ofDirectory("./docs/api"),
+  KB.ofDirectory("./docs/guides"),
+  KB.ofFile("./README.md"),
+);
+// slug collisions resolved: last KB wins
+```
+
+**Built-in operators:**
+
+| Operator | Purpose |
+|---|---|
+| `Op.parseMarkdown(opts)` | Parse frontmatter, populate slug/title/chunk. Validates against schema. |
+| `Op.parseHeadings()` | Split chunks on ATX headings → recursive section tree. |
+| `Op.insertIntroductions()` | Move preamble content into synthetic "Introduction" children. |
+| `Op.resolveCollisions()` | Disambiguate duplicate slugs (cross-file and section). |
+| `Op.rewriteLinks()` | Rewrite relative `.md` links to `docpack://slug` references. |
+| `Op.summarizeFile(path)` | Import summaries from a JSONL file. |
+| `Op.summarizeLLM(opts)` | Bottom-up tree fold with an LLM endpoint. |
+
+### Materialize
+
+```ts
+/**
+ * Traverse a KB tree and write it to a SQLite knowledge base.
+ *
+ * Writes nodes and closure table to SQLite, syncs FTS5 index, writes manifest.
+ *
+ * @param source - Source KB to materialize.
+ * @param output - Path to output directory (produces output/docpack.db + output/docpack.yaml).
+ * @param options - Manifest metadata (description, url).
+ * @returns KBQuery for the materialized knowledge base.
+ */
+function materialize<T>(
+  source: KB<T>,
+  output: string,
+  options?: MaterializeOptions,
+): KBQuery<T>;
+
+interface MaterializeOptions {
+  description?: string;
+  url?: string;
+}
+
+When the KB has a `metaSchema`, materialize extracts all keys and creates generated columns:
+
+```sql
+ALTER TABLE nodes ADD COLUMN _author TEXT GENERATED ALWAYS AS (json_extract(meta, '$.author')) STORED;
+CREATE INDEX idx_meta_author ON nodes(_author);
+```
+
+```ts
+const MyMeta = z.object({
+  title: z.string(),
+  author: z.string().optional(),
+  date: z.string().optional(),
+});
+
+const kb = KB.ofDirectory("./docs", { schema: MyMeta });
+// kb.metaSchema is MyMeta — materialize reads it automatically
+
+materialize(kb, output);
+// auto-generates: _title, _author, _date columns + indexes
+// query: SELECT * FROM nodes WHERE _author = 'Jane'
+```
+
+```ts
+interface BundleStats {
+  totalNodes: number;
+  totalChunks: number;
+  totalBytes: number;
+}
+```
+
+`BundleStats` is available via `KBQuery.stats()`, not a separate return value.
+
+Usage:
+
+```ts
+import { materialize, pipe, KB, Op } from "@rlemaigre/docpack";
+
+const MyFrontmatter = z.object({
+  author: z.string(),
+  date: z.string(),
+  tags: z.array(z.string()).optional(),
+});
+
+const preprocess = pipe(
+  Op.parseMarkdown({ frontmatter: MyFrontmatter }),  // validate, populate slug/title/chunk
+  Op.parseHeadings(),                                 // split on ATX headings → sections
+  Op.resolveCollisions(),                             // fix duplicate slugs
+  Op.rewriteLinks(),                                  // relative .md → docpack://slug
 );
 
-CREATE VIRTUAL TABLE nodes_fts USING fts5(title, chunk, content='nodes');
+const kb = preprocess(
+  KB.union(
+    KB.ofDirectory("./docs/api"),
+    KB.ofDirectory("./docs/guides"),
+    KB.ofFile("./README.md"),
+  ),
+);
 
--- Transitive closure. Materialized at bundle time, read-only thereafter.
--- Avoids recursive CTEs or iterative TypeScript calls for subtree queries.
--- Used by: get() (fetch all descendants), toc() (compute Summary stats), summarize() (merge subtree content).
+materialize(kb, "./mykb", { description: "Project documentation" });
+```
+
+The `bundle()` function remains as a convenience wrapper:
+
+```ts
+function bundle(options: BundleOptions): BundleStats;
+```
+
+### The Closure Table
+
+```sql
 CREATE TABLE closure (
   ancestor   TEXT REFERENCES nodes(slug),
   descendant TEXT REFERENCES nodes(slug),
   depth      INTEGER NOT NULL,
+  order      INTEGER,  -- pre-order position relative to ancestor. set for all depths.
   PRIMARY KEY (ancestor, descendant)
 );
+```
 
--- Relationship type definitions (schema)
+- `order` is the pre-order traversal position of `descendant` within the subtree rooted at `ancestor`.
+- Relative to `ancestor`: node X has `order=3` under ancestor A but `order=1` under ancestor B. Correct.
+- Direct children: `SELECT descendant FROM closure WHERE ancestor = ? AND depth = 1 ORDER BY order`.
+- Full subtree: `SELECT descendant FROM closure WHERE ancestor = ? ORDER BY order`.
+- Parent of X: `SELECT ancestor FROM closure WHERE descendant = ? AND depth = 1`.
+
+The closure table IS the hierarchy. The nodes table carries no structural information.
+
+### The Nodes Table
+
+```sql
+CREATE TABLE nodes (
+  slug    TEXT PRIMARY KEY,
+  title   TEXT,           // nullable — populated by operators
+  chunk   TEXT,
+  meta    TEXT  -- JSON object: frontmatter + ingestion metadata + operator output
+);
+```
+
+No `parent_slug`, no `idx`. Flat attribute store. Structure lives in `closure`.
+
+### FTS5 Table
+
+Indexes `title` and `chunk` columns for full-text search.
+
+### Relationship Tables
+
+Retained. Schema unchanged from v0.x.
+
+```sql
 CREATE TABLE relationships (
   name   TEXT PRIMARY KEY,
-  schema TEXT NOT NULL  -- JSON: { roles: ["from", "to"], payload: {...} }
+  schema TEXT NOT NULL
 );
 
--- Relationship instances
 CREATE TABLE relationship_instances (
   id     INTEGER PRIMARY KEY AUTOINCREMENT,
   relationship_name TEXT NOT NULL REFERENCES relationships(name),
   value  TEXT NOT NULL DEFAULT '{}'
 );
 
--- Parameters binding slugs to roles for each instance
 CREATE TABLE relationship_params (
   instance_id INTEGER NOT NULL REFERENCES relationship_instances(id),
   role   TEXT NOT NULL,
@@ -625,41 +402,277 @@ CREATE TABLE relationship_params (
 CREATE INDEX idx_rel_params_slug ON relationship_params(slug);
 ```
 
-# Breaking Changes
+---
 
-## get() CLI output format (TBD)
+## Query API Changes
 
-CLI `get` command output changed from a bare `<document>` root to a `<documents>` wrapper containing one or more `<document>` elements. The `--slug` option is now repeatable instead of a positional argument.
+### KBQuery Interface
 
-## Synthetic Introduction sections (v0.6.0)
+The SQLite KB implementation extends the base `KB` with efficient query primitives. Replaces the old `KBInstance`.
 
-File documents that previously had preamble content (chunk) now have `chunk: null` and a synthetic "Introduction" child section. Agents using `get("<file-slug>")` will see an empty chunk instead of preamble text. The content is at `get("<file-slug>-introduction")`.
+```ts
+export function query(path: string): KBQuery;
+```
 
-Existing `docpack://<file-slug>` links in home files still resolve to the file document (container). Agents must navigate to the introduction child for content.
+### `ancestors(slug)` — New Primitive
 
-# Future
+Returns the chain of parent documents from immediate parent up to the root. Uses the closure table.
 
-## Knowledge Graph
+```ts
+kb.ancestors("api-auth-introduction");
+// [
+//   { slug: "api-auth", title: "Authentication" },
+//   { slug: "api", title: "API Reference" },
+//   { slug: "_root", title: null },
+// ]
+```
 
-Relationships lay the groundwork for a knowledge graph: documents reference each other, forming a graph that suggests related content across branches, not just deeper ones.
+Client can navigate:
+- **Downward:** `toc(slug, depth)` 
+- **Upward:** `ancestors(slug)`
+- **Siblings:** `ancestors(slug)[0]` gives parent → `toc(parentSlug, 0)` gives siblings
 
-**Idea (TBD):** agents using the KB should be able to autonomously add content (AI-notes) and relationships between main documents and AI-notes. Like Pi extending its own skills, an agent could extend its knowledge bases when needed — added content is searchable and persists across future sessions.
+### `fetchDocument(slug)` — Full Document with Subtree
 
-## v2+
+Returns the document and its full subtree. Returns `null` if not found. No array overload.
 
-* **Web UI** — `docpack serve ./mykb --ui` spins up a local web app for browsing, searching, and exploring the knowledge base. Browser-based TOC navigation, FTS search, graph visualization when embeddings and relationships are available.
-* **Incremental updates** — track file modification times to detect changes. Enable `--watch` mode or manual `docpack update` for incremental KB rebuilds. KB lives in a `.docpack/` folder at document root (like `.git`), updating automatically on file changes or on demand.
-* **AI-authored documents** — agents can create new Markdown files in an `ai/` directory alongside `docpack.db` and `docpack.yaml`. An incremental re-bundle ingests these into the KB, and a post-processing step computes bidirectional relationships between AI-authored and source documents. Example: an agent reading a novel creates one document per character in `ai/characters/`. Each chapter relates to the characters that appear in it; each character document relates back to the chapters they appear in. This lets agents autonomously build and evolve layered knowledge on top of source material.
-* **Merge summaries into chunks (TBD)** — after the synthetic Introduction change, internal nodes always have `chunk: null`. Proposal: store AI-generated subtree summaries in the `chunk` field of internal nodes instead of the separate `summary` column. Leaf nodes keep author content in `chunk` as before. Drop the `summary` column entirely.
+The returned `Document` includes a `children` array (populated from the closure table). This is the assembled tree view for the consumer. The base `Document` type itself does not have `children` — the query result adds it.
 
-  **Benefits:** one fewer column, summaries get FTS treatment automatically, `get(slug)` on any node returns useful text (content or summary). No API surface changes — `type` distinguishes leaves (author content) from internal nodes (AI summaries).
+```ts
+interface Document<T = Record<string, unknown>> {
+  slug: string;
+  title: string | null;
+  chunk: string | null;
+  meta: T;
+  children: Document<T>[];  // populated by fetchDocument() / toc()
+}
+```
 
-  **Trade-offs:** internal chunks are null before summarize runs (same as current `summary` behavior). Search results mix author content and AI summaries — agents must check node type/children to distinguish. Semantic shift: `chunk` means "self content" on leaves but "subtree summary" on internal nodes.
+### `fetchDocuments(slugs[])` — Batch Fetch with Subtrees
 
-  **Open questions:** should summaries be excluded from search by default and opt-in? How to flag AI-generated vs author content in search snippets? Does the summarize prompt need to change since output goes into `chunk` instead of `summary`?
+Fetches multiple documents (each with subtree) in one call. Missing slugs skipped.
 
-## Known Issues
+### `search(params)` — Simplified
 
-### Ugly slugs from collision cascading
+Returns a flat array of hits. No `SearchResults` wrapper with `total`.
 
-When section heading slugs collide, `resolveCollision()` prefixes with the full parent slug. Deeply nested sections produce slugs like `1-6-1-2-12-1-recovering-from-media-failure-on-the-database-file`. The `@sindresorhus/slugify` library has no options to address this — the fix requires changing the collision resolution strategy in the bundler (e.g. use a short index suffix instead of full parent prefix).
+```ts
+interface SearchHit {
+  slug: string;
+  snippet: string;   // FTS5 excerpt with <b></b> markers
+  rank: number;      // BM25 score (cannot be reproduced in user land)
+}
+
+interface SearchParams {
+  query: string;
+  limit: number;
+  offset: number;
+}
+```
+
+Removed from `SearchHit`: `prev`, `next`, `parent`. Client calls `ancestors()` if needed.
+
+Removed from results: `total` count. Client can do an unbounded query if needed (rare).
+
+### `toc(slug, depth)` — Unchanged Semantics
+
+Returns the table of contents subtree. Clipped subtrees carry `Summary` stats.
+
+```ts
+interface TOC {
+  slug: string;
+  title: string | null;
+  children: TOC[] | Summary;  // [] = leaf, TOC[] = expanded, Summary = clipped
+}
+
+interface Summary {
+  chunkCount: number;
+  totalBytes: number;
+  depth: number;
+}
+```
+
+### `manifest()` — Simplified
+
+```ts
+interface Manifest {
+  version: string;
+  totalNodes: number;
+  totalChunks: number;
+  totalBytes: number;
+  description: string | null;
+  url: string | null;
+}
+```
+
+Removed: `home`, `exportedAt`.
+
+---
+
+## CLI Changes
+
+Ingestion is purely programmatic (TypeScript API). The CLI is **query-only**.
+
+### Removed Commands
+
+| Command | Reason |
+|---|---|
+| `docpack bundle` | Ingestion is code, not a CLI call. Users assemble pipelines in TypeScript. |
+| `docpack skill` | Skill generation removed. |
+| `docpack serve --mcp` | MCP removed. |
+| `docpack summarize` | Becomes an operator, not a standalone CLI command. Users pipe operators in user land. |
+
+### Retained Commands (Query Only)
+
+| Command | Changes |
+|---|---|
+| `docpack get` | Single `--slug` (no longer repeatable). Client loops. |
+| `docpack search` | Output simplified (no `total`, no nav fields). |
+| `docpack toc` | Unchanged. |
+
+### New Commands
+
+None. The library is a TypeScript concept. CLI stays thin.
+
+---
+
+## Public API Surface (New)
+
+```ts
+// Core types
+export interface Node<T = Record<string, unknown>> { ... }
+export interface Document<T = Record<string, unknown>> { ... }  // Node with children
+export interface KB<T = Record<string, unknown>> { ... }
+export interface KBQuery<T = Record<string, unknown>> extends KB<T> { ... }
+export type Operator<T = Record<string, unknown>> = (src: KB<T>) => KB<T>;
+
+// KB factory
+export const KB: {
+  ofFile<T = FileMeta>(path: string, opts?: { schema?: z.ZodType<T> }): KB<T>;
+  ofDirectory<T = FileMeta>(path: string, glob?: string, opts?: { schema?: z.ZodType<T> }): KB<T>;
+};
+
+// KB set operations
+export function union<T>(...kbs: KB<T>[]): KB<T>;            // merge KBs, last wins on collision
+
+// Query
+export function query<T = Record<string, unknown>>(path: string): KBQuery<T>;
+
+// Adapter
+export function asQuery<T>(kb: KB<T>): KBQuery<T>;
+
+// Operator helpers
+export function mapDocuments<T>(fn: (doc: Node<T>) => Node<T>): Operator<T>;
+export function filterDocuments<T>(fn: (doc: Node<T>) => boolean): Operator<T>;
+export function pipe<T>(...ops: Operator<T>[]): Operator<T>;  // compose operators left-to-right
+
+// Materialize
+export function materialize<T>(source: KB<T>, output: string, options?: MaterializeOptions): KBQuery<T>;
+
+// Convenience
+export function bundle(options: BundleOptions): BundleStats;  // materialize(pipe(defaultOps)(KB.ofDirectory(input)), output)
+
+// Operators (namespaced for autocomplete discovery)
+export const Op: {
+  parseMarkdown<T = Record<string, unknown>>(opts?: { frontmatter?: z.ZodType<T> }): Operator<T>;
+  parseHeadings<T>(): Operator<T>;
+  insertIntroductions<T>(): Operator<T>;
+  resolveCollisions<T>(): Operator<T>;
+  rewriteLinks<T>(): Operator<T>;
+  summarizeFile<T>(path: string): Operator<T>;
+  summarizeLLM<T>(opts: SummarizeLLMOptions): Operator<T>;
+};
+
+// Query types
+export interface Manifest { ... }
+export interface TOC { ... }
+export interface Summary { ... }
+export interface SearchHit { ... }
+export interface SearchParams { ... }
+```
+
+### Removed Exports
+
+- `generateSkill`, `GenerateSkillOptions`
+- `summarize` (standalone function) — replaced by `summarizeFile` / `summarizeLLM` operators
+- `SummarizeOptions`, `SummarizeFileOptions` (replaced by operator options)
+- `get(slug[])` overload — replaced by `fetchDocuments()`
+- `SearchResults` wrapper type — search returns `SearchHit[]` directly
+
+---
+
+## File Changes
+
+### Deleted
+
+| File | Reason |
+|---|---|
+| `src/skill/generate.ts` | Skill generation removed. |
+| `src/skill/templates/` | Templates removed. |
+| `src/cli/mcp.ts` | MCP removed. |
+| `src/post-process/summarize.ts` | Replaced by summarize operators. |
+
+### Modified
+
+| File | Changes |
+|---|---|
+| `src/index.ts` | New exports, removed old ones. |
+| `src/schema.ts` | New schema (no parent_slug, no idx, closure with order, no relationship tables). |
+| `src/query/index.ts` | KBQuery interface extending KB, new methods. |
+| `src/query/get.ts` | Single slug, new Document type, uses closure table. |
+| `src/query/search.ts` | Simplified SearchHit, flat array return. |
+| `src/query/toc.ts` | Uses closure table instead of parent_slug. |
+| `src/cli/index.ts` | Removed skill/serve/summarize commands. Simplified bundle/get/search. |
+| `src/bundler/index.ts` | Replaced by pipe + materialize. |
+| `src/bundler/db.ts` | Replaced by materializer. |
+| `src/bundler/walker.ts` | Becomes `ingest` operator. |
+| `src/bundler/parser.ts` | Becomes `parseHeadings` operator. |
+| `src/bundler/link-rewriter.ts` | Becomes `rewriteLinks` operator. |
+| `src/bundler/manifest.ts` | Simplified manifest (no home, no exportedAt). |
+| `src/utils/slug.ts` | Collision resolution becomes `resolveCollisions` operator. |
+
+### Added
+
+| File | Purpose |
+|---|---|
+| `src/operators/index.ts` | `Op` namespace object, exports all operators. |
+| `src/kb/of.ts` | `KB.ofDirectory(path, glob)` and `KB.ofFile(path)` — filesystem-backed KB factories. |
+| `src/kb/union.ts` | `KB.union(...kbs)` — merge multiple KBs, last wins on collision. |
+| `src/operators/parse-markdown.ts` | `Op.parseMarkdown()` — populate slug/title/chunk from FileMeta. |
+| `src/operators/parse-headings.ts` | `Op.parseHeadings()` — ATX heading parsing. |
+| `src/operators/insert-introductions.ts` | `Op.insertIntroductions()` — synthetic intro sections. |
+| `src/operators/resolve-collisions.ts` | `Op.resolveCollisions()` — slug disambiguation. |
+| `src/operators/rewrite-links.ts` | `Op.rewriteLinks()` — link rewriting. |
+| `src/operators/summarize-file.ts` | `Op.summarizeFile(path)` — JSONL import. |
+| `src/operators/summarize-llm.ts` | `Op.summarizeLLM(opts)` — LLM fold. |
+| `src/pipeline.ts` | `materialize()` — traverse KB, write to SQLite. |
+| `src/query/ancestors.ts` | `ancestors(slug)` query — closure table lookup. |
+| `src/query/materialize.ts` | Traverse KB, write nodes + closure to SQLite. |
+
+### Tests
+
+| File | Changes |
+|---|---|
+| `tests/skill.test.ts` | Deleted. |
+| `tests/summarize.test.ts` | Replaced by operator tests. |
+| `tests/bundle.test.ts` | Rewritten for pipe + materialize. |
+| `tests/query.test.ts` | Updated for new API (ancestors, fetchDocuments, simplified search). |
+| `tests/cli.test.ts` | Updated for new CLI surface. |
+| `tests/parser.test.ts` | Moved to operator tests. |
+| `tests/walker.test.ts` | Moved to operator tests. |
+| `tests/operators.test.ts` | New — operator unit and integration tests. |
+| `tests/pipeline.test.ts` | New — pipe + materialize tests. |
+
+---
+
+## Migration Notes (for reference, not shipped)
+
+Users upgrading from v0.x to v2.x:
+
+1. `bundle()` no longer accepts `--home`. Use `KB.ofDirectory()` or a custom KB implementation.
+2. `get([slug1, slug2])` → `fetchDocuments([slug1, slug2])`.
+3. `search()` returns `SearchHit[]` directly, not `{ total, hits }`.
+4. Navigation via `parent`/`prev`/`next` fields → use `ancestors(slug)` and `toc(slug, 0)`.
+5. `summarize()` → use `summarizeFile()` or `summarizeLLM()` operators with pipe.
+6. `generateSkill()` → implement in user land.
+7. MCP server → implement in user land using the query API.
