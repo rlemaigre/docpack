@@ -40,8 +40,6 @@ interface KB {
   root(): string;
   /** Fetch a document by slug. Returns null if not found. */
   fetch(slug: string): Document | null;
-  /** Fetch multiple documents by slug. Missing slugs skipped. */
-  fetchMany(slugs: string[]): Document[];
   /** Slugs of direct children, in order. Empty array for leaves. */
   fetchChildren(slug: string): string[];
 }
@@ -54,6 +52,7 @@ Base interface. Two primary implementations:
 
 ```ts
 interface KBQuery extends KB {
+  fetchMany(slugs: string[]): Document[];         // batch fetch, missing skipped
   manifest(): Manifest;
   toc(slug: string, depth: number | "full"): TOC;
   get(slug: string): DocumentNode | null;
