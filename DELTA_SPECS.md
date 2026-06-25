@@ -111,6 +111,7 @@ interface KBQuery<T = Record<string, unknown>> extends KB<T> {
   fetchMany(slugs: string[]): Document<T>[];      // batch fetch, missing skipped
   manifest(): Manifest;
   stats(): BundleStats;
+  where(filter: WhereFilter<T>): Document<T>[];   // type-safe query DSL → SQL WHERE
   toc(slug: string, depth: number | "full"): TOC;
   get(slug: string): DocumentNode<T> | null;
   getMany(slugs: string[]): DocumentNode<T>[];
@@ -118,6 +119,33 @@ interface KBQuery<T = Record<string, unknown>> extends KB<T> {
   search(params: SearchParams): SearchHit[];
   close(): void;
 }
+
+```ts
+interface WhereFilter<T = Record<string, unknown>> {
+  slug?: string | { in: string[]; notIn?: string[] };
+  title?: string | { like: string; notLike?: string };
+  meta?: Partial<Record<keyof T, any>>;           // key-value matches on meta
+  fts?: string;                                    // full-text search on title+chunk
+  combine?: "AND" | "OR";                          // how to combine clauses (default: AND)
+}
+```
+
+```ts
+const kb = materialize(source, output);
+
+// Filter by meta
+const mdFiles = kb.where({ meta: { extname: '.md' } });
+
+// Filter by title pattern
+const apiDocs = kb.where({ title: { like: 'API%' } });
+
+// Combined filter
+const results = kb.where({
+  meta: { extname: '.md', author: 'Jane' },
+  title: { like: '%guide%' },
+  fts: 'authentication',
+});
+```
 ```
 
 All base methods are lazy — queried on each call. No caching guarantee. The consumer controls traversal depth and thus memory usage.
