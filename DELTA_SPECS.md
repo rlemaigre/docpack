@@ -511,33 +511,28 @@ Removed: `home`, `exportedAt`.
 
 ## CLI Changes
 
+Ingestion is purely programmatic (TypeScript API). The CLI is **query-only**.
+
 ### Removed Commands
 
 | Command | Reason |
 |---|---|
+| `docpack bundle` | Ingestion is code, not a CLI call. Users assemble pipelines in TypeScript. |
 | `docpack skill` | Skill generation removed. |
 | `docpack serve --mcp` | MCP removed. |
 | `docpack summarize` | Becomes an operator, not a standalone CLI command. Users pipe operators in user land. |
 
-### Modified Commands
+### Retained Commands (Query Only)
 
 | Command | Changes |
 |---|---|
-| `docpack bundle` | Simplified. No `--home`. Wraps default materialize. |
 | `docpack get` | Single `--slug` (no longer repeatable). Client loops. |
 | `docpack search` | Output simplified (no `total`, no nav fields). |
+| `docpack toc` | Unchanged. |
 
 ### New Commands
 
 None. The library is a TypeScript concept. CLI stays thin.
-
-### Bundle Command (New)
-
-```bash
-docpack bundle --input ./docs --output ./mykb [--description "..."] [--url "..."]
-```
-
-Removed: `--home`, `--exported-at`.
 
 ---
 
