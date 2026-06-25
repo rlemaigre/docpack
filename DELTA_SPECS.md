@@ -36,14 +36,15 @@ A knowledge base is a document tree stored in SQLite. The tree has a single root
 
 ```ts
 interface Document {
-  slug: string;           // globally unique identifier
-  title: string;
-  chunk: string | null;   // self content (Markdown). null for internal nodes.
-  summary: string | null; // AI-generated subtree summary. optional.
+  slug: string;                      // globally unique identifier
+  chunk: string | null;              // self content (Markdown). null for internal nodes.
+  summary: string | null;            // AI-generated subtree summary. optional.
+  meta: Record<string, unknown>;     // frontmatter + ingestion metadata (path, author, date, ...)
 }
 ```
 
-**Removed fields:** `index`, `parent`, `prev`, `next`, `level`, `depth`, `children`, `meta`.
+**Removed fields:** `type`, `index`, `parent`, `prev`, `next`, `level`, `depth`, `children`.
+**Added:** `meta` — container for frontmatter data and ingestion metadata (file path, basename, author, dates, etc.). Populated by `KB.ofDirectory()` from YAML frontmatter and filesystem info. Read by custom operators for domain-specific post-processing.
 
 - Ordering: encoded in the closure table (`order` column), not on the document.
 - Navigation: via `KB.fetchChildren()`, `KB.root()`, and the `ancestors()` query primitive.
@@ -199,9 +200,9 @@ The closure table IS the hierarchy. The nodes table carries no structural inform
 ```sql
 CREATE TABLE nodes (
   slug    TEXT PRIMARY KEY,
-  title   TEXT NOT NULL,
   chunk   TEXT,
-  summary TEXT
+  summary TEXT,
+  meta    TEXT  -- JSON object, parsed from frontmatter + ingestion metadata
 );
 ```
 
@@ -209,7 +210,7 @@ No `parent_slug`, no `idx`. Flat attribute store. Structure lives in `closure`.
 
 ### FTS5 Table
 
-Unchanged. `nodes_fts` virtual table indexing `title` and `chunk`.
+Indexes `chunk` column for full-text search.
 
 ### Relationship Tables
 
@@ -268,9 +269,9 @@ Returns the chain of parent documents from immediate parent up to the root. Uses
 ```ts
 kb.ancestors("api-auth-introduction");
 // [
-//   { slug: "api-auth", title: "Authentication" },
-//   { slug: "api", title: "API Reference" },
-//   { slug: "_root", title: "Documents" },
+//   { slug: "api-auth" },
+//   { slug: "api" },
+//   { slug: "_root" },
 // ]
 ```
 
@@ -288,10 +289,9 @@ The returned `Document` includes a `children` array (populated from the closure 
 ```ts
 interface DocumentNode {
   slug: string;
-  type: "file" | "section";
-  title: string;
   chunk: string | null;
   summary: string | null;
+  meta: Record<string, unknown>;
   children: DocumentNode[];  // populated by get() / toc()
 }
 ```
@@ -329,7 +329,6 @@ Returns the table of contents subtree. Clipped subtrees carry `Summary` stats.
 ```ts
 interface TOC {
   slug: string;
-  title: string;
   children: TOC[] | Summary;  // [] = leaf, TOC[] = expanded, Summary = clipped
 }
 
