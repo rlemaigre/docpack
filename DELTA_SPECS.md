@@ -32,7 +32,7 @@ Shift from a monolithic bundler with bundled features (skill generation, MCP, su
 
 No separate "KB" data type. A knowledge base is a document tree stored in SQLite. The tree has a single root (synthetic if multiple source files).
 
-### The KB Interface (Lazy Read Handle)
+### The KB Interface
 
 ```ts
 interface KB {
@@ -47,7 +47,24 @@ interface KB {
 }
 ```
 
-All three methods are lazy — they query SQLite on each call. No caching guarantee. The consumer controls traversal depth and thus memory usage.
+Base interface. Two primary implementations:
+
+- **Filesystem KB** (`ingest(dir)`) — reads files on demand. Flat tree. No search.
+- **SQLite KB** (`query(path)`) — same base methods plus efficient query primitives backed by the closure table and FTS5.
+
+```ts
+interface KBQuery extends KB {
+  manifest(): Manifest;
+  toc(slug: string, depth: number | "full"): TOC;
+  get(slug: string): DocumentNode | null;
+  getMany(slugs: string[]): DocumentNode[];
+  ancestors(slug: string): DocumentNode[];
+  search(params: SearchParams): SearchHit[];
+  close(): void;
+}
+```
+
+All base methods are lazy — queried on each call. No caching guarantee. The consumer controls traversal depth and thus memory usage.
 
 ### Operators
 
@@ -225,18 +242,24 @@ CREATE INDEX idx_rel_params_slug ON relationship_params(slug);
 
 ## Query API Changes
 
-### New Interface
+### KBQuery Interface
+
+The SQLite KB implementation extends the base `KB` with efficient query primitives. Replaces the old `KBInstance`.
 
 ```ts
-interface KBInstance {
+interface KBQuery extends KB {
   manifest(): Manifest;
   toc(slug: string, depth: number | "full"): TOC;
-  get(slug: string): Document | null;        // single slug only
-  getMany(slugs: string[]): Document[];       // batch fetch, missing skipped
-  ancestors(slug: string): Document[];        // chain from parent to root, ordered
+  get(slug: string): DocumentNode | null;     // single slug, with subtree
+  getMany(slugs: string[]): DocumentNode[];   // batch fetch, with subtrees
+  ancestors(slug: string): DocumentNode[];    // chain from parent to root
   search(params: SearchParams): SearchHit[];  // flat array, no total wrapper
   close(): void;
 }
+```
+
+```ts
+export function query(path: string): KBQuery;
 ```
 
 ### `ancestors(slug)` — New Primitive
@@ -373,11 +396,13 @@ Removed: `--home`, `--exported-at`.
 ```ts
 // Core types
 export interface Document { ... }
-export interface KB { ... }
+export interface KB { ... }                          // base: root, fetch, fetchMany, fetchChildren
+export interface KBQuery extends KB { ... }          // SQLite KB + toc, get, ancestors, search
 export type Operator = (src: KB) => KB;
 
 // KB implementations
 export function ingest(dir: string): KB;             // filesystem-backed flat KB
+export function query(path: string): KBQuery;        // SQLite-backed KB with query primitives
 
 // Pipeline
 export function pipeline(source: KB, operators: Operator[], output: string, options?: PipelineOptions): BundleStats;
@@ -392,8 +417,8 @@ export function summarizeFile(path: string): Operator;
 export function summarizeLLM(opts: SummarizeLLMOptions): Operator;
 
 // Query
-export function query(kbDir: string): KBInstance;
-export interface KBInstance { ... }
+export function query(path: string): KBQuery;
+export interface KBQuery { ... }
 
 // Query types
 export interface Manifest { ... }
@@ -408,7 +433,7 @@ export interface SearchParams { ... }
 - `generateSkill`, `GenerateSkillOptions`
 - `summarize` (standalone function) — replaced by `summarizeFile` / `summarizeLLM` operators
 - `SummarizeOptions`, `SummarizeFileOptions` (replaced by operator options)
-- `KBInstance.get(slug[])` overload — replaced by `getMany()`
+- `get(slug[])` overload — replaced by `getMany()`
 - `SearchResults` wrapper type — search returns `SearchHit[]` directly
 
 ---
@@ -430,7 +455,7 @@ export interface SearchParams { ... }
 |---|---|
 | `src/index.ts` | New exports, removed old ones. |
 | `src/schema.ts` | New schema (no parent_slug, no idx, closure with order, no relationship tables). |
-| `src/query/index.ts` | New KBInstance interface, new methods. |
+| `src/query/index.ts` | KBQuery interface extending KB, new methods. |
 | `src/query/get.ts` | Single slug, new DocumentNode type, uses closure table. |
 | `src/query/search.ts` | Simplified SearchHit, flat array return. |
 | `src/query/toc.ts` | Uses closure table instead of parent_slug. |
