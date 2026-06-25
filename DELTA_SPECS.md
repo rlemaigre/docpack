@@ -23,7 +23,6 @@ Shift from a monolithic bundler with bundled features (skill generation, MCP, su
 | `prev`/`next`/`parent` on `SearchHit` | Same reasoning. Client calls `ancestors()` if needed. |
 | `level`/`depth` fields on `Document` | Derivable from `ancestors()` and tree walk. |
 | `meta` field on `Document` | Not needed in the stripped model. |
-| Relationship tables (`relationships`, `relationship_instances`, `relationship_params`) | Future feature, never shipped. Premature. |
 | `home` manifest field | With single synthetic root, the entry point is always known. |
 | `exportedAt` manifest field | User land concern. |
 
@@ -195,6 +194,32 @@ No `parent_slug`, no `idx`. Flat attribute store. Structure lives in `closure`.
 ### FTS5 Table
 
 Unchanged. `nodes_fts` virtual table indexing `title` and `chunk`.
+
+### Relationship Tables
+
+Retained. Schema unchanged from v0.x.
+
+```sql
+CREATE TABLE relationships (
+  name   TEXT PRIMARY KEY,
+  schema TEXT NOT NULL
+);
+
+CREATE TABLE relationship_instances (
+  id     INTEGER PRIMARY KEY AUTOINCREMENT,
+  relationship_name TEXT NOT NULL REFERENCES relationships(name),
+  value  TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE TABLE relationship_params (
+  instance_id INTEGER NOT NULL REFERENCES relationship_instances(id),
+  role   TEXT NOT NULL,
+  slug   TEXT NOT NULL REFERENCES nodes(slug),
+  PRIMARY KEY(instance_id, role, slug)
+);
+
+CREATE INDEX idx_rel_params_slug ON relationship_params(slug);
+```
 
 ---
 

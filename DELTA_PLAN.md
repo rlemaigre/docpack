@@ -8,7 +8,7 @@ Phased approach. Each phase leaves the project in a consistent state (compiles, 
 
 Foundation. No behavior yet.
 
-- [ ] **1.1** Rewrite `src/schema.ts` — new nodes table (no parent_slug, no idx), closure table with `order` column, drop relationship tables
+- [ ] **1.1** Rewrite `src/schema.ts` — new nodes table (no parent_slug, no idx), closure table with `order` column, retain relationship tables
 - [ ] **1.2** Rewrite `src/query/get.ts` — new `Document` type, new `DocumentNode` type (with children), remove nav fields
 - [ ] **1.3** Rewrite `src/query/search.ts` — simplified `SearchHit`, flat array return, add `rank`
 - [ ] **1.4** Rewrite `src/query/toc.ts` — use closure table instead of parent_slug
