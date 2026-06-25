@@ -32,10 +32,10 @@ Shift from a monolithic bundler with bundled features (skill generation, MCP, su
 
 A knowledge base is a document tree stored in SQLite. The tree has a single root (synthetic if multiple source files).
 
-### The Document Type
+### The Node Type
 
 ```ts
-interface Document<T = Record<string, unknown>> {
+interface Node<T = Record<string, unknown>> {
   slug: string;                      // globally unique identifier
   title: string | null;              // display name (populated by operators)
   chunk: string | null;              // self content (Markdown). null for internal nodes.
@@ -45,7 +45,7 @@ interface Document<T = Record<string, unknown>> {
 
 Generic over `T`. Default is untyped `Record<string, unknown>`.
 
-**Ingestion output** — `KB.ofDirectory()` and `KB.ofFile()` produce `Document<FileMeta>`:
+**Ingestion output** — `KB.ofDirectory()` and `KB.ofFile()` produce `Node<FileMeta>`:
 - `slug`: derived from absolute path (deterministic, unique across KBs)
 - `title`: null
 - `chunk`: null
@@ -90,7 +90,7 @@ interface KB<T = Record<string, unknown>> {
   /** Slug of the single root document. */
   root(): string;
   /** Fetch a single node by slug (no children). Returns null if not found. */
-  fetchNode(slug: string): Document<T> | null;
+  fetchNode(slug: string): Node<T> | null;
   /** Slugs of direct children, in order. Empty array for leaves. */
   fetchChildren(slug: string): string[];
   /** Runtime Zod schema for meta. Attached by KB.ofDirectory / operators. Used by materialize. */
@@ -102,20 +102,20 @@ Generic over `T` — all documents in a KB share the same meta type. `KB.ofDirec
 
 Base interface. Two primary implementations:
 
-- **Filesystem KB** (`KB.ofFile(path)`) — single file. Produces `Document<FileMeta>` with slug=from absolute path, title=null, chunk=null, meta=raw file attrs.
+- **Filesystem KB** (`KB.ofFile(path)`) — single file. Produces `Node<FileMeta>` with slug=from absolute path, title=null, chunk=null, meta=raw file attrs.
 - **Directory KB** (`KB.ofDirectory(path, glob)`) — directory with optional glob filter. Flat tree. Same shape as ofFile.
 - **SQLite KB** (`query<T>(path)`) — same base methods plus efficient query primitives backed by the closure table and FTS5.
 
 ```ts
 interface KBQuery<T = Record<string, unknown>> extends KB<T> {
-  fetchNodes(slugs: string[]): Document<T>[];      // batch fetch nodes, missing skipped
-  fetch(slug: string): DocumentNode<T> | null;     // fetch doc with full subtree
-  fetchMany(slugs: string[]): DocumentNode<T>[];   // batch fetch docs with subtrees
+  fetchNodes(slugs: string[]): Node<T>[];      // batch fetch nodes, missing skipped
+  fetch(slug: string): Document<T> | null;     // fetch doc with full subtree
+  fetchMany(slugs: string[]): Document<T>[];   // batch fetch docs with subtrees
   manifest(): Manifest;
   stats(): BundleStats;
-  where(filter: WhereFilter<T>): Document<T>[];    // type-safe query DSL → SQL WHERE
+  where(filter: WhereFilter<T>): Node<T>[];    // type-safe query DSL → SQL WHERE
   toc(slug: string, depth: number | "full"): TOC;
-  ancestors(slug: string): DocumentNode<T>[];
+  ancestors(slug: string): Document<T>[];
   search(params: SearchParams): SearchHit[];
   close(): void;
 }
@@ -161,7 +161,7 @@ Adapts any KB to KBQuery. Pass-through if the input is already a KBQuery. Otherw
 ### Operator Helpers
 
 ```ts
-function mapDocuments<T>(fn: (doc: Document<T>) => Document<T>): Operator<T>;
+function mapDocuments<T>(fn: (doc: Node<T>) => Node<T>): Operator<T>;
 ```
 
 Creates an operator that transforms documents without changing hierarchy. Delegates `root()` and `fetchChildren()` to the source KB; wraps `fetch()` to apply the transform.
@@ -171,7 +171,7 @@ const trimTitles = mapDocuments(doc => ({ ...doc, title: doc.title?.trim() }));
 ```
 
 ```ts
-function filterDocuments<T>(fn: (doc: Document<T>) => boolean): Operator<T>;
+function filterDocuments<T>(fn: (doc: Node<T>) => boolean): Operator<T>;
 ```
 
 Filters documents out of the KB. Updates `fetchChildren` to exclude filtered docs.
@@ -414,9 +414,9 @@ The SQLite KB implementation extends the base `KB` with efficient query primitiv
 interface KBQuery extends KB {
   manifest(): Manifest;
   toc(slug: string, depth: number | "full"): TOC;
-  fetch(slug: string): DocumentNode | null;     // single slug, with subtree
-  getMany(slugs: string[]): DocumentNode[];   // batch fetch, with subtrees
-  ancestors(slug: string): DocumentNode[];    // chain from parent to root
+  fetch(slug: string): Document | null;     // single slug, with subtree
+  getMany(slugs: string[]): Document[];   // batch fetch, with subtrees
+  ancestors(slug: string): Document[];    // chain from parent to root
   search(params: SearchParams): SearchHit[];  // flat array, no total wrapper
   close(): void;
 }
@@ -451,12 +451,12 @@ Returns the document and its full subtree. Returns `null` if not found. No array
 The returned `Document` includes a `children` array (populated from the closure table). This is the assembled tree view for the consumer. The base `Document` type itself does not have `children` — the query result adds it.
 
 ```ts
-interface DocumentNode<T = Record<string, unknown>> {
+interface Document<T = Record<string, unknown>> {
   slug: string;
   title: string | null;
   chunk: string | null;
   meta: T;
-  children: DocumentNode<T>[];  // populated by fetch() / toc()
+  children: Document<T>[];  // populated by fetch() / toc()
 }
 ```
 
@@ -557,7 +557,8 @@ Removed: `--home`, `--exported-at`.
 
 ```ts
 // Core types
-export interface Document<T = Record<string, unknown>> { ... }
+export interface Node<T = Record<string, unknown>> { ... }
+export interface Document<T = Record<string, unknown>> { ... }  // Node with children
 export interface KB<T = Record<string, unknown>> { ... }
 export interface KBQuery<T = Record<string, unknown>> extends KB<T> { ... }
 export type Operator<T = Record<string, unknown>> = (src: KB<T>) => KB<T>;
@@ -578,8 +579,8 @@ export function query<T = Record<string, unknown>>(path: string): KBQuery<T>;
 export function asQuery<T>(kb: KB<T>): KBQuery<T>;
 
 // Operator helpers
-export function mapDocuments<T>(fn: (doc: Document<T>) => Document<T>): Operator<T>;
-export function filterDocuments<T>(fn: (doc: Document<T>) => boolean): Operator<T>;
+export function mapDocuments<T>(fn: (doc: Node<T>) => Node<T>): Operator<T>;
+export function filterDocuments<T>(fn: (doc: Node<T>) => boolean): Operator<T>;
 export function pipe<T>(...ops: Operator<T>[]): Operator<T>;  // compose operators left-to-right
 
 // Materialize
@@ -635,7 +636,7 @@ export interface SearchParams { ... }
 | `src/index.ts` | New exports, removed old ones. |
 | `src/schema.ts` | New schema (no parent_slug, no idx, closure with order, no relationship tables). |
 | `src/query/index.ts` | KBQuery interface extending KB, new methods. |
-| `src/query/get.ts` | Single slug, new DocumentNode type, uses closure table. |
+| `src/query/get.ts` | Single slug, new Document type, uses closure table. |
 | `src/query/search.ts` | Simplified SearchHit, flat array return. |
 | `src/query/toc.ts` | Uses closure table instead of parent_slug. |
 | `src/cli/index.ts` | Removed skill/serve/summarize commands. Simplified bundle/get/search. |
