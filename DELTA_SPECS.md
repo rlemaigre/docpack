@@ -115,6 +115,25 @@ function asQuery<T>(kb: KB<T>): KBQuery<T>;
 
 Adapts any KB to KBQuery. Pass-through if the input is already a KBQuery. Otherwise materializes to a temporary SQLite database. Used by operators that need query primitives (ancestors, toc, search) on an arbitrary KB input.
 
+### Operator Helpers
+
+```ts
+function mapDocuments<T>(fn: (doc: Document<T>) => Document<T>): Operator<T>;
+```
+
+Creates an operator that transforms documents without changing hierarchy. Delegates `root()` and `fetchChildren()` to the source KB; wraps `fetch()` to apply the transform.
+
+```ts
+// Example: trim titles
+const trimTitles = mapDocuments(doc => ({ ...doc, title: doc.title?.trim() }));
+
+// Example: normalize frontmatter
+const normalizeMeta = mapDocuments(doc => ({
+  ...doc,
+  meta: { ...doc.meta, author: (doc.meta as any).author?.toUpperCase() },
+}));
+```
+
 ### Operators
 
 ```ts
@@ -461,6 +480,9 @@ export function query<T = Record<string, unknown>>(path: string): KBQuery<T>;
 
 // Adapter
 export function asQuery<T>(kb: KB<T>): KBQuery<T>;
+
+// Operator helpers
+export function mapDocuments<T>(fn: (doc: Document<T>) => Document<T>): Operator<T>;
 
 // Pipeline
 export function pipeline<T>(source: KB<T>, operators: Operator<T>[], output: string, options?: PipelineOptions): BundleStats;
