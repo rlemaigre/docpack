@@ -49,7 +49,7 @@ interface KB {
 
 Base interface. Two primary implementations:
 
-- **Filesystem KB** (`ingest(dir)`) — reads files on demand. Flat tree. No search.
+- **Filesystem KB** (`KB.of(dir)`) — reads files on demand. Flat tree. No search.
 - **SQLite KB** (`query(path)`) — same base methods plus efficient query primitives backed by the closure table and FTS5.
 
 ```ts
@@ -87,13 +87,7 @@ An operator receives a read-only KB and returns a new KB. The returned KB is a w
 - Lazy: no traversal happens until the output KB is consumed.
 - Composable: `op3(op2(op1(kb)))` chains transformations.
 
-A filesystem-backed KB (`ingest(dir)`) is just another implementation of the KB interface — like a SQLite-backed KB or a wrapper KB. No special "ingestor" type.
-
-**Built-in KB implementations:**
-
-| Implementation | Purpose |
-|---|---|
-| `ingest(dir)` | Flat KB backed by filesystem (root + raw file docs). |
+A filesystem-backed KB is just another implementation of the KB interface — like a SQLite-backed KB or a wrapper KB.
 
 **Built-in operators:**
 
@@ -143,10 +137,10 @@ interface BundleStats {
 Usage:
 
 ```ts
-import { pipeline, ingest, parseHeadings, insertIntroductions, resolveCollisions, rewriteLinks } from "@rlemaigre/docpack";
+import { pipeline, KB, parseHeadings, insertIntroductions, resolveCollisions, rewriteLinks } from "@rlemaigre/docpack";
 
 pipeline(
-  ingest("./docs"),             // source KB: flat tree, raw file text
+  KB.of("./docs"),              // source KB: flat tree, raw file text
   [
     parseHeadings(),            // split on ATX headings → sections
     insertIntroductions(),      // preamble → synthetic children
@@ -408,8 +402,10 @@ export interface KB { ... }                          // base: root, fetch, fetch
 export interface KBQuery extends KB { ... }          // SQLite KB + toc, get, ancestors, search
 export type Operator = (src: KB) => KB;
 
-// KB implementations
-export function ingest(dir: string): KB;             // filesystem-backed flat KB
+// KB factory
+export const KB: {
+  of(dir: string, filter?: (path: string) => boolean): KB;
+};
 export function query(path: string): KBQuery;        // SQLite-backed KB with query primitives
 
 // Adapter
@@ -484,7 +480,7 @@ export interface SearchParams { ... }
 | File | Purpose |
 |---|---|
 | `src/operators/index.ts` | Operator exports and types. |
-| `src/kb/ingest.ts` | `ingest(dir)` — filesystem-backed KB implementation (root + raw file docs). |
+| `src/kb/of.ts` | `KB.of(dir)` — filesystem-backed KB factory (root + raw file docs). |
 | `src/operators/parse-headings.ts` | `parseHeadings()` operator — ATX heading parsing. |
 | `src/operators/insert-introductions.ts` | `insertIntroductions()` operator — synthetic intro sections. |
 | `src/operators/resolve-collisions.ts` | `resolveCollisions()` operator — slug disambiguation. |
@@ -515,7 +511,7 @@ export interface SearchParams { ... }
 
 Users upgrading from v0.x to v2.x:
 
-1. `bundle()` no longer accepts `--home`. Use the synthetic root or a custom ingest operator.
+1. `bundle()` no longer accepts `--home`. Use `KB.of()` or a custom KB implementation.
 2. `get([slug1, slug2])` → `getMany([slug1, slug2])`.
 3. `search()` returns `SearchHit[]` directly, not `{ total, hits }`.
 4. Navigation via `parent`/`prev`/`next` fields → use `ancestors(slug)` and `toc(slug, 0)`.
