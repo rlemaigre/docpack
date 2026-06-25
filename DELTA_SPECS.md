@@ -45,8 +45,8 @@ interface Document<T = Record<string, unknown>> {
 
 Generic over `T`. Default is untyped `Record<string, unknown>`.
 
-**Ingestion output** — `KB.ofDirectory()` produces `Document<FileMeta>`:
-- `slug`: auto-incremental ID (no parsing)
+**Ingestion output** — `KB.ofDirectory()` and `KB.ofFile()` produce `Document<FileMeta>`:
+- `slug`: derived from absolute path (deterministic, unique across KBs)
 - `title`: null
 - `chunk`: null
 - `meta`: raw file attributes — content, path, basename, size, mtime, ...
@@ -55,7 +55,7 @@ Generic over `T`. Default is untyped `Record<string, unknown>`.
 interface FileMeta {
   content: string;
   path: string;        // absolute path
-  relativePath: string; // relative to root directory
+  relativePath: string; // relative to root directory (ofDirectory only)
   basename: string;
   extname: string;
   size: number;
@@ -63,8 +63,6 @@ interface FileMeta {
   frontmatter?: Record<string, unknown>; // parsed YAML frontmatter if present
 }
 ```
-
-Operators transform raw documents into structured ones — parsing content into slug/title/chunk, extracting hierarchy, etc.
 
 **Removed fields:** `type`, `summary`, `index`, `parent`, `prev`, `next`, `level`, `depth`, `children`.
 **Added:** `meta` — container for frontmatter data, ingestion metadata (file path, basename, author, dates), and operator output (e.g. `meta.summary` from summarize operator). Populated by `KB.ofDirectory()` from YAML frontmatter and filesystem info. Extended by operators as needed.
@@ -90,7 +88,8 @@ Generic over `T` — all documents in a KB share the same meta type. `KB.ofDirec
 
 Base interface. Two primary implementations:
 
-- **Filesystem KB** (`KB.ofDirectory(path, glob)`) — reads files on demand. Flat tree. Produces `Document<FileMeta>` with slug=auto-id, title=null, chunk=null, meta=raw file attrs.
+- **Filesystem KB** (`KB.ofFile(path)`) — single file. Produces `Document<FileMeta>` with slug=from absolute path, title=null, chunk=null, meta=raw file attrs.
+- **Directory KB** (`KB.ofDirectory(path, glob)`) — directory with optional glob filter. Flat tree. Same shape as ofFile.
 - **SQLite KB** (`query<T>(path)`) — same base methods plus efficient query primitives backed by the closure table and FTS5.
 
 ```ts
@@ -133,12 +132,23 @@ A filesystem-backed KB is just another implementation of the KB interface — li
 
 **Typical pipeline:**
 
-1. `KB.ofDirectory("./docs")` → flat `KB<FileMeta>` (slug=auto-id, title=null, chunk=null, meta=raw file attrs)
+1. `KB.ofDirectory("./docs")` → flat `KB<FileMeta>` (slug=from abs path, title=null, chunk=null, meta=raw file attrs)
 2. `parseMarkdown()` → `KB<MarkdownMeta>` (slug/title/chunk populated from meta.content, frontmatter in meta)
 3. `parseHeadings()` → recursive section tree from chunk content
 4. `resolveCollisions()` → disambiguate duplicate slugs
 5. `rewriteLinks()` → rewrite relative `.md` links to `docpack://slug` references
 6. `summarizeLLM(opts)` → bottom-up tree fold, writes to meta.summary
+
+**Merging KBs:**
+
+```ts
+const kb = KB.union(
+  KB.ofDirectory("./docs/api"),
+  KB.ofDirectory("./docs/guides"),
+  KB.ofFile("./README.md"),
+);
+// slug collisions resolved: last KB wins
+```
 
 **Built-in operators:**
 
@@ -192,7 +202,11 @@ Usage:
 import { pipeline, KB, parseMarkdown, parseHeadings, resolveCollisions, rewriteLinks } from "@rlemaigre/docpack";
 
 pipeline(
-  KB.ofDirectory("./docs"),              // flat KB<FileMeta>: slug=auto-id, title=null, chunk=null
+  KB.union(
+    KB.ofDirectory("./docs/api"),
+    KB.ofDirectory("./docs/guides"),
+    KB.ofFile("./README.md"),
+  ),                                     // flat KB<FileMeta>: slug=from abs path, title=null, chunk=null
   [
     parseMarkdown(),            // populate slug/title/chunk from meta.content + frontmatter
     parseHeadings(),            // split on ATX headings → sections
@@ -435,8 +449,12 @@ export type Operator<T = Record<string, unknown>> = (src: KB<T>) => KB<T>;
 
 // KB factory
 export const KB: {
-  ofDirectory(path: string, glob?: string): KB<FileMeta>;
+  ofFile(path: string): KB<FileMeta>;                        // single file
+  ofDirectory(path: string, glob?: string): KB<FileMeta>;    // directory, glob filter
 };
+
+// KB set operations
+export function union<T>(...kbs: KB<T>[]): KB<T>;            // merge KBs, last wins on collision
 
 // Query
 export function query<T = Record<string, unknown>>(path: string): KBQuery<T>;
@@ -510,7 +528,8 @@ export interface SearchParams { ... }
 | File | Purpose |
 |---|---|
 | `src/operators/index.ts` | Operator exports and types. |
-| `src/kb/of.ts` | `KB.ofDirectory(path, glob)` — filesystem-backed KB factory (root + raw file docs). |
+| `src/kb/of.ts` | `KB.ofDirectory(path, glob)` and `KB.ofFile(path)` — filesystem-backed KB factories. |
+| `src/kb/union.ts` | `KB.union(...kbs)` — merge multiple KBs, last wins on collision. |
 | `src/operators/parse-headings.ts` | `parseHeadings()` operator — ATX heading parsing. |
 | `src/operators/insert-introductions.ts` | `insertIntroductions()` operator — synthetic intro sections. |
 | `src/operators/resolve-collisions.ts` | `resolveCollisions()` operator — slug disambiguation. |

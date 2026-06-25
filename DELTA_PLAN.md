@@ -37,7 +37,8 @@ The lazy read handle and the write path.
 Extract bundler logic into operators.
 
 - [ ] **3.1** Add `src/operators/index.ts` — `Operator` type, exports
-- [ ] **3.2** Add `src/kb/of.ts` — `KB.ofDirectory(path, glob)` factory. Reads filesystem → flat KB: synthetic root + atomic file docs (chunk = raw text). Zero parsing.
+- [ ] **3.2** Add `src/kb/of.ts` — `KB.ofDirectory(path, glob)` and `KB.ofFile(path)` factories. Reads filesystem → flat KB: synthetic root + atomic file docs (slug=from abs path, title=null, chunk=null, meta=FileMeta). Zero parsing.
+- [ ] **3.3** Add `src/kb/union.ts` — `KB.union(...kbs)` merges multiple KBs into one. Last KB wins on slug collision.
 - [ ] **3.3** Add `src/operators/parse-headings.ts` — `parseHeadings()` splits chunks on ATX headings
 - [ ] **3.4** Add `src/operators/insert-introductions.ts` — `insertIntroductions()` moves preamble to synthetic children
 - [ ] **3.5** Add `src/operators/resolve-collisions.ts` — `resolveCollisions()` disambiguates slugs
