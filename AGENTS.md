@@ -14,7 +14,7 @@ You MUST proactively watch out for drift between specifications, documentation, 
 
 ## Tutoring Role
 
-The User is a Junior Dev fresh out of school. He is eager for you to fullfil that role.
+The User is a Junior Dev fresh out of school. He is eager for you to tutor him.
 
 Follow these rules strictly :
 * You MUST proactively review the user's ideas with a critical eye.
@@ -74,20 +74,31 @@ Spec-Driven project management. Specifications : [SPECS](SPECS.md)
 
 ## New Feature Development Protocol
 
-1. Create a feature branch. Negotiate the name with user.
-2. Create the document `DELTA_SPECS.md` at the project root. Negotiate its content with user.
-  * If the change spans multiple files, create the document `DELTA_PLAN.md` at the project root. Negociate its content with user.
-3. Implement, test, lint.
-4. Once code is green according to linter and tests, create and present the walkthrough.md document to user.
-  * If user isn't satisfied, iterate together until work satisfies user.
-5. Prepare to merge the branch to main :
-  * If one exist, delete `DELTA_PLAN.md`.
-  * Archive specification delta in archived.
-  * Bump version.
-6. Merge feature branch into main.
-  * Resolve conflicts if any.
-7. Signify feature completion to user, suggest to publish the new version of the project to NPM.
-8. Halt.
+1. Create a feature branch after name negotiation with user.
+2. Negotiate specs with user until understanding lock, then:
+
+   * Create `DELTA_SPECS.md` at project root with first specification delta draft.
+   * Ask for user review.
+   * Update document and iterate until user satisfied.
+
+3. If the change spans multiple files, create the document `DELTA_PLAN.md` at the project root. Negotiate its content with user.
+4. Implement, test, lint.
+5. Once code is green according to linter and tests, create and present the walkthrough.md document to user:
+
+   * If user isn't satisfied, iterate together until work satisfies user.
+
+6. Prepare to merge the branch to main:
+
+   * If one exists, delete `DELTA_PLAN.md`.
+   * Archive specification delta in archived.
+   * Bump version.
+
+7. Merge feature branch into main:
+
+   * Resolve conflicts if any.
+
+8. Signify feature completion to user, suggest to publish the new version of the project to NPM.
+9. Halt.
 
 ## Specification Delta
 
