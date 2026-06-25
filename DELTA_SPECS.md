@@ -110,6 +110,7 @@ Base interface. Two primary implementations:
 interface KBQuery<T = Record<string, unknown>> extends KB<T> {
   fetchMany(slugs: string[]): Document<T>[];      // batch fetch, missing skipped
   manifest(): Manifest;
+  stats(): BundleStats;
   toc(slug: string, depth: number | "full"): TOC;
   get(slug: string): DocumentNode<T> | null;
   getMany(slugs: string[]): DocumentNode<T>[];
@@ -230,13 +231,13 @@ const kb = KB.union(
  * @param source - Source KB to materialize.
  * @param output - Path to output directory (produces output/docpack.db + output/docpack.yaml).
  * @param options - Manifest metadata (description, url).
- * @returns Bundle statistics.
+ * @returns KBQuery for the materialized knowledge base.
  */
 function materialize<T>(
   source: KB<T>,
   output: string,
   options?: MaterializeOptions,
-): BundleStats;
+): KBQuery<T>;
 
 interface MaterializeOptions {
   description?: string;
@@ -265,12 +266,15 @@ materialize(kb, output);
 // query: SELECT * FROM nodes WHERE _author = 'Jane'
 ```
 
+```ts
 interface BundleStats {
   totalNodes: number;
   totalChunks: number;
   totalBytes: number;
 }
 ```
+
+`BundleStats` is available via `KBQuery.stats()`, not a separate return value.
 
 Usage:
 
@@ -551,7 +555,7 @@ export function filterDocuments<T>(fn: (doc: Document<T>) => boolean): Operator<
 export function pipe<T>(...ops: Operator<T>[]): Operator<T>;  // compose operators left-to-right
 
 // Materialize
-export function materialize<T>(source: KB<T>, output: string, options?: MaterializeOptions): BundleStats;
+export function materialize<T>(source: KB<T>, output: string, options?: MaterializeOptions): KBQuery<T>;
 
 // Convenience
 export function bundle(options: BundleOptions): BundleStats;  // materialize(pipe(defaultOps)(KB.ofDirectory(input)), output)
