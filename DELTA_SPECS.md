@@ -37,6 +37,7 @@ A knowledge base is a document tree stored in SQLite. The tree has a single root
 ```ts
 interface Document<T = Record<string, unknown>> {
   slug: string;                      // globally unique identifier
+  title: string;                     // display name (from frontmatter, heading, or filename)
   chunk: string | null;              // self content (Markdown). null for internal nodes.
   meta: T;                           // typed metadata (frontmatter, ingestion info, operator output)
 }
@@ -50,7 +51,7 @@ const kb = KB.ofDirectory<MyMeta>("./docs", { schema: myZodSchema });
 // kb.fetch("slug") returns Document<MyMeta> | null
 ```
 
-**Removed fields:** `type`, `title`, `summary`, `index`, `parent`, `prev`, `next`, `level`, `depth`, `children`.
+**Removed fields:** `type`, `summary`, `index`, `parent`, `prev`, `next`, `level`, `depth`, `children`.
 **Added:** `meta` — container for frontmatter data, ingestion metadata (file path, basename, author, dates), and operator output (e.g. `meta.summary` from summarize operator). Populated by `KB.ofDirectory()` from YAML frontmatter and filesystem info. Extended by operators as needed.
 
 - Ordering: encoded in the closure table (`order` column), not on the document.
@@ -209,6 +210,7 @@ The closure table IS the hierarchy. The nodes table carries no structural inform
 ```sql
 CREATE TABLE nodes (
   slug    TEXT PRIMARY KEY,
+  title   TEXT NOT NULL,
   chunk   TEXT,
   meta    TEXT  -- JSON object: frontmatter + ingestion metadata + operator output
 );
@@ -218,7 +220,7 @@ No `parent_slug`, no `idx`. Flat attribute store. Structure lives in `closure`.
 
 ### FTS5 Table
 
-Indexes `chunk` column for full-text search.
+Indexes `title` and `chunk` columns for full-text search.
 
 ### Relationship Tables
 
@@ -297,6 +299,7 @@ The returned `Document` includes a `children` array (populated from the closure 
 ```ts
 interface DocumentNode<T = Record<string, unknown>> {
   slug: string;
+  title: string;
   chunk: string | null;
   meta: T;
   children: DocumentNode<T>[];  // populated by get() / toc()
@@ -336,6 +339,7 @@ Returns the table of contents subtree. Clipped subtrees carry `Summary` stats.
 ```ts
 interface TOC {
   slug: string;
+  title: string;
   children: TOC[] | Summary;  // [] = leaf, TOC[] = expanded, Summary = clipped
 }
 
