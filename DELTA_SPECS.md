@@ -216,18 +216,28 @@ function materialize<T>(
 interface MaterializeOptions {
   description?: string;
   url?: string;
-  /** Meta keys to index. Creates generated columns and indexes for efficient querying. */
-  metaIndexes?: string[];
+  /** Zod schema for meta. Extracts keys to create generated columns and indexes. */
+  schema?: z.ZodType<unknown>;
 }
 
-When `metaIndexes` is provided, materialize creates generated columns:
+When `schema` is provided, materialize extracts all keys and creates generated columns:
 
 ```sql
 ALTER TABLE nodes ADD COLUMN _author TEXT GENERATED ALWAYS AS (json_extract(meta, '$.author')) STORED;
 CREATE INDEX idx_meta_author ON nodes(_author);
 ```
 
-Users query via the generated column: `SELECT * FROM nodes WHERE _author = 'Jane'`.
+```ts
+const MyMeta = z.object({
+  title: z.string(),
+  author: z.string().optional(),
+  date: z.string().optional(),
+});
+
+materialize(kb, output, { schema: MyMeta });
+// auto-generates: _title, _author, _date columns + indexes
+// query: SELECT * FROM nodes WHERE _author = 'Jane'
+```
 
 interface BundleStats {
   totalNodes: number;
