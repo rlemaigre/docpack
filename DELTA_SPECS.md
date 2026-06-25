@@ -35,11 +35,19 @@ A knowledge base is a document tree stored in SQLite. The tree has a single root
 ### The Document Type
 
 ```ts
-interface Document {
+interface Document<T = Record<string, unknown>> {
   slug: string;                      // globally unique identifier
   chunk: string | null;              // self content (Markdown). null for internal nodes.
-  meta: Record<string, unknown>;     // frontmatter + ingestion metadata + operator output (summary, ...)
+  meta: T;                           // typed metadata (frontmatter, ingestion info, operator output)
 }
+```
+
+Generic over `T`. Default is untyped `Record<string, unknown>`. Users define their own meta type and validate at ingestion:
+
+```ts
+interface MyMeta { title: string; author?: string; summary?: string; }
+const kb = KB.ofDirectory<MyMeta>("./docs", { schema: myZodSchema });
+// kb.fetch("slug") returns Document<MyMeta> | null
 ```
 
 **Removed fields:** `type`, `title`, `summary`, `index`, `parent`, `prev`, `next`, `level`, `depth`, `children`.
@@ -52,29 +60,31 @@ interface Document {
 ### The KB Interface
 
 ```ts
-interface KB {
+interface KB<T = Record<string, unknown>> {
   /** Slug of the single root document. */
   root(): string;
   /** Fetch a document by slug. Returns null if not found. */
-  fetch(slug: string): Document | null;
+  fetch(slug: string): Document<T> | null;
   /** Slugs of direct children, in order. Empty array for leaves. */
   fetchChildren(slug: string): string[];
 }
 ```
 
+Generic over `T` — all documents in a KB share the same meta type. Default is untyped.
+
 Base interface. Two primary implementations:
 
-- **Filesystem KB** (`KB.ofDirectory(path, glob)`) — reads files on demand. Flat tree. No search.
-- **SQLite KB** (`query(path)`) — same base methods plus efficient query primitives backed by the closure table and FTS5.
+- **Filesystem KB** (`KB.ofDirectory<T>(path, glob)`) — reads files on demand. Flat tree. No search.
+- **SQLite KB** (`query<T>(path)`) — same base methods plus efficient query primitives backed by the closure table and FTS5.
 
 ```ts
-interface KBQuery extends KB {
-  fetchMany(slugs: string[]): Document[];         // batch fetch, missing skipped
+interface KBQuery<T = Record<string, unknown>> extends KB<T> {
+  fetchMany(slugs: string[]): Document<T>[];      // batch fetch, missing skipped
   manifest(): Manifest;
   toc(slug: string, depth: number | "full"): TOC;
-  get(slug: string): DocumentNode | null;
-  getMany(slugs: string[]): DocumentNode[];
-  ancestors(slug: string): DocumentNode[];
+  get(slug: string): DocumentNode<T> | null;
+  getMany(slugs: string[]): DocumentNode<T>[];
+  ancestors(slug: string): DocumentNode<T>[];
   search(params: SearchParams): SearchHit[];
   close(): void;
 }
@@ -85,7 +95,7 @@ All base methods are lazy — queried on each call. No caching guarantee. The co
 ### Adapter
 
 ```ts
-function asQuery(kb: KB): KBQuery;
+function asQuery<T>(kb: KB<T>): KBQuery<T>;
 ```
 
 Adapts any KB to KBQuery. Pass-through if the input is already a KBQuery. Otherwise materializes to a temporary SQLite database. Used by operators that need query primitives (ancestors, toc, search) on an arbitrary KB input.
@@ -93,7 +103,7 @@ Adapts any KB to KBQuery. Pass-through if the input is already a KBQuery. Otherw
 ### Operators
 
 ```ts
-type Operator = (src: KB) => KB;
+type Operator<T = Record<string, unknown>> = (src: KB<T>) => KB<T>;
 ```
 
 An operator receives a read-only KB and returns a new KB. The returned KB is a wrapper — it delegates to `src` and transforms results on demand. Zero materialization.
@@ -131,9 +141,9 @@ A filesystem-backed KB is just another implementation of the KB interface — li
  * @param options - Manifest metadata (description, url).
  * @returns Bundle statistics.
  */
-function pipeline(
-  source: KB,
-  operators: Operator[],
+function pipeline<T>(
+  source: KB<T>,
+  operators: Operator<T>[],
   output: string,
   options?: PipelineOptions,
 ): BundleStats;
@@ -285,11 +295,11 @@ Returns the document and its full subtree. Returns `null` if not found. No array
 The returned `Document` includes a `children` array (populated from the closure table). This is the assembled tree view for the consumer. The base `Document` type itself does not have `children` — the query result adds it.
 
 ```ts
-interface DocumentNode {
+interface DocumentNode<T = Record<string, unknown>> {
   slug: string;
   chunk: string | null;
-  meta: Record<string, unknown>;
-  children: DocumentNode[];  // populated by get() / toc()
+  meta: T;
+  children: DocumentNode<T>[];  // populated by get() / toc()
 }
 ```
 
@@ -389,35 +399,33 @@ Removed: `--home`, `--exported-at`.
 
 ```ts
 // Core types
-export interface Document { ... }
-export interface KB { ... }                          // base: root, fetch, fetchMany, fetchChildren
-export interface KBQuery extends KB { ... }          // SQLite KB + toc, get, ancestors, search
-export type Operator = (src: KB) => KB;
+export interface Document<T = Record<string, unknown>> { ... }
+export interface KB<T = Record<string, unknown>> { ... }
+export interface KBQuery<T = Record<string, unknown>> extends KB<T> { ... }
+export type Operator<T = Record<string, unknown>> = (src: KB<T>) => KB<T>;
 
 // KB factory
 export const KB: {
-  ofDirectory(path: string, glob?: string): KB;
+  ofDirectory<T = Record<string, unknown>>(path: string, glob?: string): KB<T>;
 };
-export function query(path: string): KBQuery;        // SQLite-backed KB with query primitives
+
+// Query
+export function query<T = Record<string, unknown>>(path: string): KBQuery<T>;
 
 // Adapter
-export function asQuery(kb: KB): KBQuery;            // pass-through if already KBQuery, else temp SQLite
+export function asQuery<T>(kb: KB<T>): KBQuery<T>;
 
 // Pipeline
-export function pipeline(source: KB, operators: Operator[], output: string, options?: PipelineOptions): BundleStats;
+export function pipeline<T>(source: KB<T>, operators: Operator<T>[], output: string, options?: PipelineOptions): BundleStats;
 export function bundle(options: BundleOptions): BundleStats;  // convenience wrapper
 
 // Operators
-export function parseHeadings(): Operator;
-export function insertIntroductions(): Operator;
-export function resolveCollisions(): Operator;
-export function rewriteLinks(): Operator;
-export function summarizeFile(path: string): Operator;
-export function summarizeLLM(opts: SummarizeLLMOptions): Operator;
-
-// Query
-export function query(path: string): KBQuery;
-export interface KBQuery { ... }
+export function parseHeadings<T>(): Operator<T>;
+export function insertIntroductions<T>(): Operator<T>;
+export function resolveCollisions<T>(): Operator<T>;
+export function rewriteLinks<T>(): Operator<T>;
+export function summarizeFile<T>(path: string): Operator<T>;
+export function summarizeLLM<T>(opts: SummarizeLLMOptions): Operator<T>;
 
 // Query types
 export interface Manifest { ... }
