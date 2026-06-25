@@ -32,6 +32,24 @@ Shift from a monolithic bundler with bundled features (skill generation, MCP, su
 
 No separate "KB" data type. A knowledge base is a document tree stored in SQLite. The tree has a single root (synthetic if multiple source files).
 
+### The Document Type
+
+```ts
+interface Document {
+  slug: string;           // globally unique identifier
+  type: "file" | "section";
+  title: string;
+  chunk: string | null;   // self content (Markdown). null for internal nodes.
+  summary: string | null; // AI-generated subtree summary. optional.
+}
+```
+
+**Removed fields:** `index`, `parent`, `prev`, `next`, `level`, `depth`, `children`, `meta`.
+
+- Ordering: encoded in the closure table (`order` column), not on the document.
+- Navigation: via `KB.fetchChildren()`, `KB.root()`, and the `ancestors()` query primitive.
+- Tree structure: assembled by the consumer from `fetchChildren()` calls, not carried in the document.
+
 ### The KB Interface
 
 ```ts
@@ -156,24 +174,6 @@ The `bundle()` function remains as a convenience wrapper around the default pipe
 ```ts
 function bundle(options: BundleOptions): BundleStats;
 ```
-
-### The Document Type
-
-```ts
-interface Document {
-  slug: string;           // globally unique identifier
-  type: "file" | "section";
-  title: string;
-  chunk: string | null;   // self content (Markdown). null for internal nodes.
-  summary: string | null; // AI-generated subtree summary. optional.
-}
-```
-
-**Removed fields:** `index`, `parent`, `prev`, `next`, `level`, `depth`, `children`, `meta`.
-
-- Ordering: encoded in the closure table (`order` column), not on the document.
-- Navigation: via `KB.fetchChildren()`, `KB.root()`, and the `ancestors()` query primitive.
-- Tree structure: assembled by the consumer from `fetchChildren()` calls, not carried in the document.
 
 ### The Closure Table
 
