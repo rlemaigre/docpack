@@ -179,11 +179,11 @@ A filesystem-backed KB is just another implementation of the KB interface — li
 **Typical flow:**
 
 1. `KB.ofDirectory("./docs")` → flat `KB<FileMeta>` (slug=from abs path, title=null, chunk=null, meta=raw file attrs)
-2. `parseMarkdown()` → `KB<MarkdownMeta>` (slug/title/chunk populated from meta.content, frontmatter in meta)
-3. `parseHeadings()` → recursive section tree from chunk content
-4. `resolveCollisions()` → disambiguate duplicate slugs
-5. `rewriteLinks()` → rewrite relative `.md` links to `docpack://slug` references
-6. `summarizeLLM(opts)` → bottom-up tree fold, writes to meta.summary
+2. `Op.parseMarkdown({ frontmatter: MySchema })` → validates frontmatter, populates slug/title/chunk. Errors on invalid data.
+3. `Op.parseHeadings()` → recursive section tree from chunk content
+4. `Op.resolveCollisions()` → disambiguate duplicate slugs
+5. `Op.rewriteLinks()` → rewrite relative `.md` links to `docpack://slug` references
+6. `Op.summarizeLLM(opts)` → bottom-up tree fold, writes to meta.summary
 
 **Merging KBs:**
 
@@ -200,7 +200,7 @@ const kb = KB.union(
 
 | Operator | Purpose |
 |---|---|
-| `Op.parseMarkdown()` | Materialize raw FileMeta into slug/title/chunk from content + frontmatter. |
+| `Op.parseMarkdown(opts)` | Parse frontmatter, populate slug/title/chunk. Validates against schema. |
 | `Op.parseHeadings()` | Split chunks on ATX headings → recursive section tree. |
 | `Op.insertIntroductions()` | Move preamble content into synthetic "Introduction" children. |
 | `Op.resolveCollisions()` | Disambiguate duplicate slugs (cross-file and section). |
@@ -266,11 +266,17 @@ Usage:
 ```ts
 import { materialize, pipe, KB, Op } from "@rlemaigre/docpack";
 
+const MyFrontmatter = z.object({
+  author: z.string(),
+  date: z.string(),
+  tags: z.array(z.string()).optional(),
+});
+
 const preprocess = pipe(
-  Op.parseMarkdown(),       // populate slug/title/chunk from meta.content + frontmatter
-  Op.parseHeadings(),       // split on ATX headings → sections
-  Op.resolveCollisions(),   // fix duplicate slugs
-  Op.rewriteLinks(),        // relative .md → docpack://slug
+  Op.parseMarkdown({ frontmatter: MyFrontmatter }),  // validate, populate slug/title/chunk
+  Op.parseHeadings(),                                 // split on ATX headings → sections
+  Op.resolveCollisions(),                             // fix duplicate slugs
+  Op.rewriteLinks(),                                  // relative .md → docpack://slug
 );
 
 const kb = preprocess(
@@ -540,7 +546,7 @@ export function bundle(options: BundleOptions): BundleStats;  // materialize(pip
 
 // Operators (namespaced for autocomplete discovery)
 export const Op: {
-  parseMarkdown(): Operator<FileMeta>;
+  parseMarkdown<T = Record<string, unknown>>(opts?: { frontmatter?: z.ZodType<T> }): Operator<T>;
   parseHeadings<T>(): Operator<T>;
   insertIntroductions<T>(): Operator<T>;
   resolveCollisions<T>(): Operator<T>;
