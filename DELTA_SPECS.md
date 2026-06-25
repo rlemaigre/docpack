@@ -142,7 +142,7 @@ const preprocess = pipe(
 );
 // preprocess is Operator<T> — reusable, not applied yet
 
-pipeline(kb, [preprocess], output);
+materialize(preprocess(kb), output);
 // or
 const enhancedKB = preprocess(kb);
 ```
@@ -162,7 +162,7 @@ An operator receives a read-only KB and returns a new KB. The returned KB is a w
 
 A filesystem-backed KB is just another implementation of the KB interface — like a SQLite-backed KB or a wrapper KB.
 
-**Typical pipeline:**
+**Typical flow:**
 
 1. `KB.ofDirectory("./docs")` → flat `KB<FileMeta>` (slug=from abs path, title=null, chunk=null, meta=raw file attrs)
 2. `parseMarkdown()` → `KB<MarkdownMeta>` (slug/title/chunk populated from meta.content, frontmatter in meta)
@@ -225,20 +225,7 @@ interface BundleStats {
 }
 ```
 
-### Pipeline (Convenience)
-
-`pipeline` is a shorthand for `materialize(pipe(...ops)(source), output, options)`. Not a distinct primitive.
-
-```ts
-function pipeline<T>(
-  source: KB<T>,
-  operators: Operator<T>[],
-  output: string,
-  options?: MaterializeOptions,
-): BundleStats;
-```
-
-Usage (pipe + materialize):
+Usage:
 
 ```ts
 import { materialize, pipe, KB, Op } from "@rlemaigre/docpack";
@@ -261,20 +248,7 @@ const kb = preprocess(
 materialize(kb, "./mykb", { description: "Project documentation" });
 ```
 
-Or use `pipeline` as a shorthand:
-
-```ts
-import { pipeline, KB, Op } from "@rlemaigre/docpack";
-
-pipeline(
-  KB.ofDirectory("./docs"),
-  [Op.parseMarkdown(), Op.parseHeadings(), Op.resolveCollisions(), Op.rewriteLinks()],
-  "./mykb",
-  { description: "Project documentation" },
-);
-```
-
-The `bundle()` function remains as a convenience wrapper around the default pipeline:
+The `bundle()` function remains as a convenience wrapper:
 
 ```ts
 function bundle(options: BundleOptions): BundleStats;
@@ -476,13 +450,13 @@ Removed: `home`, `exportedAt`.
 
 | Command | Changes |
 |---|---|
-| `docpack bundle` | Simplified. No `--home`. Wraps default pipeline. |
+| `docpack bundle` | Simplified. No `--home`. Wraps default materialize. |
 | `docpack get` | Single `--slug` (no longer repeatable). Client loops. |
 | `docpack search` | Output simplified (no `total`, no nav fields). |
 
 ### New Commands
 
-None. The pipeline is a TypeScript library concept. CLI stays thin.
+None. The library is a TypeScript concept. CLI stays thin.
 
 ### Bundle Command (New)
 
@@ -525,9 +499,8 @@ export function pipe<T>(...ops: Operator<T>[]): Operator<T>;  // compose operato
 // Materialize
 export function materialize<T>(source: KB<T>, output: string, options?: MaterializeOptions): BundleStats;
 
-// Pipeline (convenience: materialize(pipe(...ops)(source), output, options))
-export function pipeline<T>(source: KB<T>, operators: Operator<T>[], output: string, options?: MaterializeOptions): BundleStats;
-export function bundle(options: BundleOptions): BundleStats;  // convenience wrapper
+// Convenience
+export function bundle(options: BundleOptions): BundleStats;  // materialize(pipe(defaultOps)(KB.ofDirectory(input)), output)
 
 // Operators (namespaced for autocomplete discovery)
 export const Op: {
@@ -580,8 +553,8 @@ export interface SearchParams { ... }
 | `src/query/search.ts` | Simplified SearchHit, flat array return. |
 | `src/query/toc.ts` | Uses closure table instead of parent_slug. |
 | `src/cli/index.ts` | Removed skill/serve/summarize commands. Simplified bundle/get/search. |
-| `src/bundler/index.ts` | Replaced by pipeline + operators. |
-| `src/bundler/db.ts` | Replaced by pipeline materializer. |
+| `src/bundler/index.ts` | Replaced by pipe + materialize. |
+| `src/bundler/db.ts` | Replaced by materializer. |
 | `src/bundler/walker.ts` | Becomes `ingest` operator. |
 | `src/bundler/parser.ts` | Becomes `parseHeadings` operator. |
 | `src/bundler/link-rewriter.ts` | Becomes `rewriteLinks` operator. |
@@ -602,7 +575,7 @@ export interface SearchParams { ... }
 | `src/operators/rewrite-links.ts` | `Op.rewriteLinks()` — link rewriting. |
 | `src/operators/summarize-file.ts` | `Op.summarizeFile(path)` — JSONL import. |
 | `src/operators/summarize-llm.ts` | `Op.summarizeLLM(opts)` — LLM fold. |
-| `src/pipeline.ts` | Pipeline function — compose operators, materialize to SQLite. |
+| `src/pipeline.ts` | `materialize()` — traverse KB, write to SQLite. |
 | `src/query/ancestors.ts` | `ancestors(slug)` query — closure table lookup. |
 | `src/query/materialize.ts` | Traverse KB, write nodes + closure to SQLite. |
 
@@ -612,13 +585,13 @@ export interface SearchParams { ... }
 |---|---|
 | `tests/skill.test.ts` | Deleted. |
 | `tests/summarize.test.ts` | Replaced by operator tests. |
-| `tests/bundle.test.ts` | Rewritten for pipeline + operators. |
+| `tests/bundle.test.ts` | Rewritten for pipe + materialize. |
 | `tests/query.test.ts` | Updated for new API (ancestors, getMany, simplified search). |
 | `tests/cli.test.ts` | Updated for new CLI surface. |
 | `tests/parser.test.ts` | Moved to operator tests. |
 | `tests/walker.test.ts` | Moved to operator tests. |
 | `tests/operators.test.ts` | New — operator unit and integration tests. |
-| `tests/pipeline.test.ts` | New — pipeline composition and materialization tests. |
+| `tests/pipeline.test.ts` | New — pipe + materialize tests. |
 
 ---
 
@@ -630,6 +603,6 @@ Users upgrading from v0.x to v2.x:
 2. `get([slug1, slug2])` → `getMany([slug1, slug2])`.
 3. `search()` returns `SearchHit[]` directly, not `{ total, hits }`.
 4. Navigation via `parent`/`prev`/`next` fields → use `ancestors(slug)` and `toc(slug, 0)`.
-5. `summarize()` → use `summarizeFile()` or `summarizeLLM()` as operators in a pipeline.
+5. `summarize()` → use `summarizeFile()` or `summarizeLLM()` operators with pipe.
 6. `generateSkill()` → implement in user land.
 7. MCP server → implement in user land using the query API.
