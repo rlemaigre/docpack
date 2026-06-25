@@ -37,19 +37,34 @@ A knowledge base is a document tree stored in SQLite. The tree has a single root
 ```ts
 interface Document<T = Record<string, unknown>> {
   slug: string;                      // globally unique identifier
-  title: string;                     // display name (from frontmatter, heading, or filename)
+  title: string | null;              // display name (populated by operators)
   chunk: string | null;              // self content (Markdown). null for internal nodes.
   meta: T;                           // typed metadata (frontmatter, ingestion info, operator output)
 }
 ```
 
-Generic over `T`. Default is untyped `Record<string, unknown>`. Users define their own meta type and validate at ingestion:
+Generic over `T`. Default is untyped `Record<string, unknown>`.
+
+**Ingestion output** — `KB.ofDirectory()` produces `Document<FileMeta>`:
+- `slug`: auto-incremental ID (no parsing)
+- `title`: null
+- `chunk`: null
+- `meta`: raw file attributes — content, path, basename, size, mtime, ...
 
 ```ts
-interface MyMeta { title: string; author?: string; summary?: string; }
-const kb = KB.ofDirectory<MyMeta>("./docs", { schema: myZodSchema });
-// kb.fetch("slug") returns Document<MyMeta> | null
+interface FileMeta {
+  content: string;
+  path: string;        // absolute path
+  relativePath: string; // relative to root directory
+  basename: string;
+  extname: string;
+  size: number;
+  mtime: number;
+  frontmatter?: Record<string, unknown>; // parsed YAML frontmatter if present
+}
 ```
+
+Operators transform raw documents into structured ones — parsing content into slug/title/chunk, extracting hierarchy, etc.
 
 **Removed fields:** `type`, `summary`, `index`, `parent`, `prev`, `next`, `level`, `depth`, `children`.
 **Added:** `meta` — container for frontmatter data, ingestion metadata (file path, basename, author, dates), and operator output (e.g. `meta.summary` from summarize operator). Populated by `KB.ofDirectory()` from YAML frontmatter and filesystem info. Extended by operators as needed.
@@ -71,11 +86,11 @@ interface KB<T = Record<string, unknown>> {
 }
 ```
 
-Generic over `T` — all documents in a KB share the same meta type. Default is untyped.
+Generic over `T` — all documents in a KB share the same meta type. `KB.ofDirectory()` produces `KB<FileMeta>`. Operators preserve or transform the meta type.
 
 Base interface. Two primary implementations:
 
-- **Filesystem KB** (`KB.ofDirectory<T>(path, glob)`) — reads files on demand. Flat tree. No search.
+- **Filesystem KB** (`KB.ofDirectory(path, glob)`) — reads files on demand. Flat tree. Produces `Document<FileMeta>` with slug=auto-id, title=null, chunk=null, meta=raw file attrs.
 - **SQLite KB** (`query<T>(path)`) — same base methods plus efficient query primitives backed by the closure table and FTS5.
 
 ```ts
@@ -116,10 +131,20 @@ An operator receives a read-only KB and returns a new KB. The returned KB is a w
 
 A filesystem-backed KB is just another implementation of the KB interface — like a SQLite-backed KB or a wrapper KB.
 
+**Typical pipeline:**
+
+1. `KB.ofDirectory("./docs")` → flat `KB<FileMeta>` (slug=auto-id, title=null, chunk=null, meta=raw file attrs)
+2. `parseMarkdown()` → `KB<MarkdownMeta>` (slug/title/chunk populated from meta.content, frontmatter in meta)
+3. `parseHeadings()` → recursive section tree from chunk content
+4. `resolveCollisions()` → disambiguate duplicate slugs
+5. `rewriteLinks()` → rewrite relative `.md` links to `docpack://slug` references
+6. `summarizeLLM(opts)` → bottom-up tree fold, writes to meta.summary
+
 **Built-in operators:**
 
 | Operator | Purpose |
 |---|---|
+| `parseMarkdown()` | Materialize raw FileMeta into slug/title/chunk from content + frontmatter. |
 | `parseHeadings()` | Split chunks on ATX headings → recursive section tree. |
 | `insertIntroductions()` | Move preamble content into synthetic "Introduction" children. |
 | `resolveCollisions()` | Disambiguate duplicate slugs (cross-file and section). |
@@ -164,13 +189,13 @@ interface BundleStats {
 Usage:
 
 ```ts
-import { pipeline, KB, parseHeadings, insertIntroductions, resolveCollisions, rewriteLinks } from "@rlemaigre/docpack";
+import { pipeline, KB, parseMarkdown, parseHeadings, resolveCollisions, rewriteLinks } from "@rlemaigre/docpack";
 
 pipeline(
-  KB.ofDirectory("./docs"),              // source KB: flat tree, raw file text
+  KB.ofDirectory("./docs"),              // flat KB<FileMeta>: slug=auto-id, title=null, chunk=null
   [
+    parseMarkdown(),            // populate slug/title/chunk from meta.content + frontmatter
     parseHeadings(),            // split on ATX headings → sections
-    insertIntroductions(),      // preamble → synthetic children
     resolveCollisions(),        // fix duplicate slugs
     rewriteLinks(),             // relative .md → docpack://slug
   ],
@@ -210,7 +235,7 @@ The closure table IS the hierarchy. The nodes table carries no structural inform
 ```sql
 CREATE TABLE nodes (
   slug    TEXT PRIMARY KEY,
-  title   TEXT NOT NULL,
+  title   TEXT,           // nullable — populated by operators
   chunk   TEXT,
   meta    TEXT  -- JSON object: frontmatter + ingestion metadata + operator output
 );
@@ -279,9 +304,9 @@ Returns the chain of parent documents from immediate parent up to the root. Uses
 ```ts
 kb.ancestors("api-auth-introduction");
 // [
-//   { slug: "api-auth" },
-//   { slug: "api" },
-//   { slug: "_root" },
+//   { slug: "api-auth", title: "Authentication" },
+//   { slug: "api", title: "API Reference" },
+//   { slug: "_root", title: null },
 // ]
 ```
 
@@ -299,7 +324,7 @@ The returned `Document` includes a `children` array (populated from the closure 
 ```ts
 interface DocumentNode<T = Record<string, unknown>> {
   slug: string;
-  title: string;
+  title: string | null;
   chunk: string | null;
   meta: T;
   children: DocumentNode<T>[];  // populated by get() / toc()
@@ -339,7 +364,7 @@ Returns the table of contents subtree. Clipped subtrees carry `Summary` stats.
 ```ts
 interface TOC {
   slug: string;
-  title: string;
+  title: string | null;
   children: TOC[] | Summary;  // [] = leaf, TOC[] = expanded, Summary = clipped
 }
 
@@ -410,7 +435,7 @@ export type Operator<T = Record<string, unknown>> = (src: KB<T>) => KB<T>;
 
 // KB factory
 export const KB: {
-  ofDirectory<T = Record<string, unknown>>(path: string, glob?: string): KB<T>;
+  ofDirectory(path: string, glob?: string): KB<FileMeta>;
 };
 
 // Query
@@ -424,6 +449,7 @@ export function pipeline<T>(source: KB<T>, operators: Operator<T>[], output: str
 export function bundle(options: BundleOptions): BundleStats;  // convenience wrapper
 
 // Operators
+export function parseMarkdown(): Operator<FileMeta>;
 export function parseHeadings<T>(): Operator<T>;
 export function insertIntroductions<T>(): Operator<T>;
 export function resolveCollisions<T>(): Operator<T>;
