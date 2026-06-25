@@ -30,7 +30,7 @@ Shift from a monolithic bundler with bundled features (skill generation, MCP, su
 
 ### Everything Is a Document
 
-No separate "KB" data type. A knowledge base is a document tree stored in SQLite. The tree has a single root (synthetic if multiple source files).
+A knowledge base is a document tree stored in SQLite. The tree has a single root (synthetic if multiple source files).
 
 ### The Document Type
 
