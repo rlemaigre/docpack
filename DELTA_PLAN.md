@@ -56,7 +56,7 @@ Extract bundler logic into operators.
 
 Compose operators and materialize.
 
-- [ ] **4.1** Add `src/pipeline.ts` — `pipeline(operators[], output, options)` composes operators, traverses result, materializes to SQLite
+- [ ] **4.1** Add `src/pipeline.ts` — `materialize(kb, output, options)` traverses KB, writes to SQLite. `pipeline(source, ops, output, options)` convenience wrapper.
 - [ ] **4.2** Rewrite `src/bundler/index.ts` — `bundle()` becomes a convenience wrapper: `pipeline(KB.ofDirectory(input), [Op.parseMarkdown(), Op.parseHeadings(), ...], output, options)`
 - [ ] **4.3** Delete old bundler files: `src/bundler/db.ts`, `src/bundler/walker.ts`, `src/bundler/parser.ts`, `src/bundler/link-rewriter.ts` (logic moved to operators)
 

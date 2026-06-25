@@ -194,29 +194,26 @@ const kb = KB.union(
 | `Op.summarizeFile(path)` | Import summaries from a JSONL file. |
 | `Op.summarizeLLM(opts)` | Bottom-up tree fold with an LLM endpoint. |
 
-### The Pipeline
+### Materialize
 
 ```ts
 /**
- * Apply operators to a source KB, materialize the result into a SQLite knowledge base.
+ * Traverse a KB tree and write it to a SQLite knowledge base.
  *
- * Traverses the composed KB tree, writes nodes and closure table to SQLite,
- * syncs FTS5 index, writes manifest.
+ * Writes nodes and closure table to SQLite, syncs FTS5 index, writes manifest.
  *
- * @param source - Source KB (filesystem-backed, SQLite-backed, or any KB implementation).
- * @param operators - Operators applied left-to-right (first wraps source, last wraps all).
+ * @param source - Source KB to materialize.
  * @param output - Path to output directory (produces output/docpack.db + output/docpack.yaml).
  * @param options - Manifest metadata (description, url).
  * @returns Bundle statistics.
  */
-function pipeline<T>(
+function materialize<T>(
   source: KB<T>,
-  operators: Operator<T>[],
   output: string,
-  options?: PipelineOptions,
+  options?: MaterializeOptions,
 ): BundleStats;
 
-interface PipelineOptions {
+interface MaterializeOptions {
   description?: string;
   url?: string;
 }
@@ -228,23 +225,50 @@ interface BundleStats {
 }
 ```
 
-Usage:
+### Pipeline (Convenience)
+
+`pipeline` is a shorthand for `materialize(pipe(...ops)(source), output, options)`. Not a distinct primitive.
+
+```ts
+function pipeline<T>(
+  source: KB<T>,
+  operators: Operator<T>[],
+  output: string,
+  options?: MaterializeOptions,
+): BundleStats;
+```
+
+Usage (pipe + materialize):
+
+```ts
+import { materialize, pipe, KB, Op } from "@rlemaigre/docpack";
+
+const preprocess = pipe(
+  Op.parseMarkdown(),       // populate slug/title/chunk from meta.content + frontmatter
+  Op.parseHeadings(),       // split on ATX headings → sections
+  Op.resolveCollisions(),   // fix duplicate slugs
+  Op.rewriteLinks(),        // relative .md → docpack://slug
+);
+
+const kb = preprocess(
+  KB.union(
+    KB.ofDirectory("./docs/api"),
+    KB.ofDirectory("./docs/guides"),
+    KB.ofFile("./README.md"),
+  ),
+);
+
+materialize(kb, "./mykb", { description: "Project documentation" });
+```
+
+Or use `pipeline` as a shorthand:
 
 ```ts
 import { pipeline, KB, Op } from "@rlemaigre/docpack";
 
 pipeline(
-  KB.union(
-    KB.ofDirectory("./docs/api"),
-    KB.ofDirectory("./docs/guides"),
-    KB.ofFile("./README.md"),
-  ),                                     // flat KB<FileMeta>: slug=from abs path, title=null, chunk=null
-  [
-    Op.parseMarkdown(),       // populate slug/title/chunk from meta.content + frontmatter
-    Op.parseHeadings(),       // split on ATX headings → sections
-    Op.resolveCollisions(),   // fix duplicate slugs
-    Op.rewriteLinks(),        // relative .md → docpack://slug
-  ],
+  KB.ofDirectory("./docs"),
+  [Op.parseMarkdown(), Op.parseHeadings(), Op.resolveCollisions(), Op.rewriteLinks()],
   "./mykb",
   { description: "Project documentation" },
 );
@@ -498,8 +522,11 @@ export function asQuery<T>(kb: KB<T>): KBQuery<T>;
 export function mapDocuments<T>(fn: (doc: Document<T>) => Document<T>): Operator<T>;
 export function pipe<T>(...ops: Operator<T>[]): Operator<T>;  // compose operators left-to-right
 
-// Pipeline
-export function pipeline<T>(source: KB<T>, operators: Operator<T>[], output: string, options?: PipelineOptions): BundleStats;
+// Materialize
+export function materialize<T>(source: KB<T>, output: string, options?: MaterializeOptions): BundleStats;
+
+// Pipeline (convenience: materialize(pipe(...ops)(source), output, options))
+export function pipeline<T>(source: KB<T>, operators: Operator<T>[], output: string, options?: MaterializeOptions): BundleStats;
 export function bundle(options: BundleOptions): BundleStats;  // convenience wrapper
 
 // Operators (namespaced for autocomplete discovery)
