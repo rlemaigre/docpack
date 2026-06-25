@@ -411,18 +411,6 @@ CREATE INDEX idx_rel_params_slug ON relationship_params(slug);
 The SQLite KB implementation extends the base `KB` with efficient query primitives. Replaces the old `KBInstance`.
 
 ```ts
-interface KBQuery extends KB {
-  manifest(): Manifest;
-  toc(slug: string, depth: number | "full"): TOC;
-  fetchDocument(slug: string): Document | null;     // single slug, with subtree
-  getMany(slugs: string[]): Document[];   // batch fetch, with subtrees
-  ancestors(slug: string): Document[];    // chain from parent to root
-  search(params: SearchParams): SearchHit[];  // flat array, no total wrapper
-  close(): void;
-}
-```
-
-```ts
 export function query(path: string): KBQuery;
 ```
 
