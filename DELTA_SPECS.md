@@ -66,6 +66,14 @@ interface KBQuery extends KB {
 
 All base methods are lazy — queried on each call. No caching guarantee. The consumer controls traversal depth and thus memory usage.
 
+### Adapter
+
+```ts
+function asQuery(kb: KB): KBQuery;
+```
+
+Adapts any KB to KBQuery. Pass-through if the input is already a KBQuery. Otherwise materializes to a temporary SQLite database. Used by operators that need query primitives (ancestors, toc, search) on an arbitrary KB input.
+
 ### Operators
 
 ```ts
@@ -403,6 +411,9 @@ export type Operator = (src: KB) => KB;
 // KB implementations
 export function ingest(dir: string): KB;             // filesystem-backed flat KB
 export function query(path: string): KBQuery;        // SQLite-backed KB with query primitives
+
+// Adapter
+export function asQuery(kb: KB): KBQuery;            // pass-through if already KBQuery, else temp SQLite
 
 // Pipeline
 export function pipeline(source: KB, operators: Operator[], output: string, options?: PipelineOptions): BundleStats;
