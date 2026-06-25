@@ -173,13 +173,13 @@ const kb = KB.union(
 
 | Operator | Purpose |
 |---|---|
-| `parseMarkdown()` | Materialize raw FileMeta into slug/title/chunk from content + frontmatter. |
-| `parseHeadings()` | Split chunks on ATX headings → recursive section tree. |
-| `insertIntroductions()` | Move preamble content into synthetic "Introduction" children. |
-| `resolveCollisions()` | Disambiguate duplicate slugs (cross-file and section). |
-| `rewriteLinks()` | Rewrite relative `.md` links to `docpack://slug` references. |
-| `summarizeFile(path)` | Import summaries from a JSONL file. |
-| `summarizeLLM(opts)` | Bottom-up tree fold with an LLM endpoint. |
+| `Op.parseMarkdown()` | Materialize raw FileMeta into slug/title/chunk from content + frontmatter. |
+| `Op.parseHeadings()` | Split chunks on ATX headings → recursive section tree. |
+| `Op.insertIntroductions()` | Move preamble content into synthetic "Introduction" children. |
+| `Op.resolveCollisions()` | Disambiguate duplicate slugs (cross-file and section). |
+| `Op.rewriteLinks()` | Rewrite relative `.md` links to `docpack://slug` references. |
+| `Op.summarizeFile(path)` | Import summaries from a JSONL file. |
+| `Op.summarizeLLM(opts)` | Bottom-up tree fold with an LLM endpoint. |
 
 ### The Pipeline
 
