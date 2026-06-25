@@ -216,7 +216,18 @@ function materialize<T>(
 interface MaterializeOptions {
   description?: string;
   url?: string;
+  /** Meta keys to index. Creates generated columns and indexes for efficient querying. */
+  metaIndexes?: string[];
 }
+
+When `metaIndexes` is provided, materialize creates generated columns:
+
+```sql
+ALTER TABLE nodes ADD COLUMN _author TEXT GENERATED ALWAYS AS (json_extract(meta, '$.author')) STORED;
+CREATE INDEX idx_meta_author ON nodes(_author);
+```
+
+Users query via the generated column: `SELECT * FROM nodes WHERE _author = 'Jane'`.
 
 interface BundleStats {
   totalNodes: number;
