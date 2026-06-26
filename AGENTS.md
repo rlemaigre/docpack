@@ -38,6 +38,7 @@ Follow these rules strictly :
 
 * **Github CLI** : **CRITICAL RULE** You MUST use the installed and authenticated Github CLI (`gh`) instead of brittle curl access to Github REST API.
 * **ESLint SonarJS** : **CRITICAL RULE** After making code changes, you MUST run `npx eslint src/` to check for issues from the `eslint-plugin-sonarjs` recommended rules (configured in `eslint.config.js`). Report any findings before proceeding.
+* **Subagents** : **CRITICAL RULE** You MUST NEVER use `async: true` in `subagent(...)` calls. The main agent must wait for subagent completion before resuming. Our local inference server can only load one model at a time — parallel main + subagent model calls will cause model swapping and severe performance degradation.
 
 # Bash Tool
 You have full access to this system. You have fully authority to write scripts (JS, Python, Bash, etc.) in your `scratch/` directory and run them. This does NOT require user approval.

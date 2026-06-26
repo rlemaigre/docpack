@@ -1,0 +1,8 @@
+{
+  "subagents": {
+    "asyncByDefault": false,
+    "parallel": {
+      "concurrency": 3
+    }
+  }
+}
