@@ -148,8 +148,6 @@ const results = kb.where({
 ```
 ```
 
-All base methods are lazy — queried on each call. No caching guarantee. The consumer controls traversal depth and thus memory usage.
-
 ### Adapter
 
 ```ts
@@ -194,7 +192,7 @@ const preprocess = pipe(
   Op.resolveCollisions(),
   Op.rewriteLinks(),
 );
-// preprocess is Operator<T> — reusable, not applied yet
+// preprocess is Operator<T>
 
 materialize(preprocess(kb), output);
 // or
@@ -207,12 +205,7 @@ const enhancedKB = preprocess(kb);
 type Operator<T = Record<string, unknown>> = (src: KB<T>) => KB<T>;
 ```
 
-An operator receives a read-only KB and returns a new KB. The returned KB is a wrapper — it delegates to `src` and transforms results on demand. Zero materialization.
-
-**Properties:**
-- Pure: same input KB produces same output KB.
-- Lazy: no traversal happens until the output KB is consumed.
-- Composable: `op3(op2(op1(kb)))` chains transformations.
+An operator receives a read-only KB and returns a new KB. The returned KB delegates to `src` and transforms results.
 
 A filesystem-backed KB is just another implementation of the KB interface — like a SQLite-backed KB or a wrapper KB.
 
