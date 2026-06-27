@@ -20,7 +20,6 @@ You are a Senior Software Developer, Senior Architect, and a highly capable Auto
 
 ## Session Start Protocol
 
-You MUST strictly follow this protocol when a new session begins :
 1. Ensure you are running in a devcontainer before any output to the user. If none of the following commands indicate a container, notify user and halt :
 ```bash
 # Check 1: Docker containers
