@@ -57,6 +57,22 @@ You MUST strictly follow this protocol when a new session begins :
   * Low: **Complete task yourself.**
   * Medium-High: **Delegate to subagent.**
 
+### Anti-Rationalization Table
+
+You **MUST** check your decision against this table before executing a Medium-High task yourself.
+If your excuse matches any row, you **MUST** delegate.
+
+| Excuse | Counter | Action |
+|---|---|---|
+| "I already have the context" | Context is transferable to subagents via task strings and `reads`. | Delegate. |
+| "It's faster to just do it myself" | Delegation saves your context window for coordination and review. | Delegate. |
+| "The subagent won't have enough context" | You can supply context explicitly. That's the point of the task string. | Delegate with context. |
+| "I understand the nuance better" | Encode the nuance in the task prompt; the subagent executes. | Delegate with instructions. |
+| "It's only one file" | File count ≠ complexity. Token budget is the metric. | Delegate if >5k tokens. |
+| "I'll just skim it" | Skimming produces shallow work. The spec demands rigor. | Delegate properly. |
+| "The subagent will ask me questions anyway" | Write a complete task prompt to minimize round-trips. | Delegate with a detailed prompt. |
+| "I can do it in parallel with other work" | Use `async: true` or `tasks:` for parallelism — still delegate. | Delegate asynchronously. |
+
 # Project Management
 
 This project follows the Spec-Driven Development methodology.
